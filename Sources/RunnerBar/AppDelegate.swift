@@ -21,7 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover.behavior = .transient
         popover.animates = false
         let hc = NSHostingController(rootView: PopoverView(store: observable))
-        hc.preferredContentSize = NSSize(width: 280, height: 400) // single source of truth
+        hc.preferredContentSize = NSSize(width: 280, height: 400)
         popover.contentViewController = hc
         self.popover = popover
 
@@ -57,8 +57,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if popover.isShown {
             popover.performClose(nil)
         } else {
-            NSApplication.shared.activate(ignoringOtherApps: true) // activate before anchoring
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            // Always re-read button.bounds at show time so the anchor is correct
+            // on every open, not just the first. Pass `button` itself as the
+            // positioningView so AppKit stays in the right coordinate space.
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
+            popover.contentViewController?.view.window?.makeKey()
         }
     }
 }
