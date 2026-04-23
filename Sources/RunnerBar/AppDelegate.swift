@@ -7,7 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem?.button {
-            button.title = "\u26ab"
+            button.title = "⚫"
             button.action = #selector(showMenu)
             button.target = self
         }
@@ -40,7 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             menu.addItem(NSMenuItem(title: "RunnerBar v0.1", action: nil, keyEquivalent: ""))
             for scope in ScopeStore.shared.scopes {
-                menu.addItem(NSMenuItem(title: "\u2022 \(scope)", action: nil, keyEquivalent: ""))
+                menu.addItem(NSMenuItem(title: "• \(scope)", action: nil, keyEquivalent: ""))
             }
         }
 
