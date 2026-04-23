@@ -108,8 +108,10 @@ struct PopoverView: View {
             .keyboardShortcut("q", modifiers: .command)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
+
+            Spacer(minLength: 0)
         }
-        .frame(width: 280)
+        .frame(width: 280, height: 400, alignment: .top)
     }
 
     private func submitScope() {
@@ -131,11 +133,6 @@ final class RunnerStoreObservable: ObservableObject {
     @Published var runners: [Runner] = []
 
     init() {
-        RunnerStore.shared.onChange = { [weak self] in
-            DispatchQueue.main.async {
-                self?.runners = RunnerStore.shared.runners
-            }
-        }
         runners = RunnerStore.shared.runners
     }
 
