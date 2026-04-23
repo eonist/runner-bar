@@ -13,6 +13,14 @@ enum AggregateStatus {
         case .allOffline: return "⚫"
         }
     }
+
+    var symbolName: String {
+        switch self {
+        case .allOnline: return "circle.fill"
+        case .someOffline: return "circle.lefthalf.filled"
+        case .allOffline: return "circle"
+        }
+    }
 }
 
 final class RunnerStore {
