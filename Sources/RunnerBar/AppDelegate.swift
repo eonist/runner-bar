@@ -11,6 +11,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.action = #selector(showMenu)
             button.target = self
         }
+
+        RunnerStore.shared.onChange = { [weak self] in
+            self?.statusItem?.menu = self?.buildMenu()
+        }
+
+        if githubToken() != nil && !ScopeStore.shared.isEmpty {
+            RunnerStore.shared.start()
+        }
+
         statusItem?.menu = buildMenu()
     }
 
@@ -42,6 +51,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             for scope in ScopeStore.shared.scopes {
                 menu.addItem(NSMenuItem(title: "• \(scope)", action: nil, keyEquivalent: ""))
             }
+            menu.addItem(.separator())
+            let refresh = NSMenuItem(title: "Refresh", action: #selector(refresh), keyEquivalent: "r")
+            refresh.target = self
+            menu.addItem(refresh)
         }
 
         menu.addItem(.separator())
@@ -53,6 +66,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let value = sender.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return }
         ScopeStore.shared.add(value)
+        RunnerStore.shared.start()
         statusItem?.menu = buildMenu()
+    }
+
+    @objc private func refresh() {
+        RunnerStore.shared.fetch()
     }
 }
