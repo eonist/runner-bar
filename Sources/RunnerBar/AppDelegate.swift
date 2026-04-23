@@ -18,10 +18,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let popover = NSPopover()
-        popover.contentSize = NSSize(width: 280, height: 400)
         popover.behavior = .transient
         popover.animates = false
         let hc = NSHostingController(rootView: PopoverView(store: observable))
+        hc.preferredContentSize = NSSize(width: 280, height: 400) // single source of truth
         popover.contentViewController = hc
         self.popover = popover
 
@@ -57,8 +57,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if popover.isShown {
             popover.performClose(nil)
         } else {
+            NSApplication.shared.activate(ignoringOtherApps: true) // activate before anchoring
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
-            NSApplication.shared.activate(ignoringOtherApps: true)
         }
     }
 }
