@@ -49,6 +49,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let button = statusItem?.button,
               button.window != nil,
               let popover else { return }
+        print("[RunnerBar] button.bounds: \(button.bounds)")
+        print("[RunnerBar] button frame in window: \(button.convert(button.bounds, to: nil))")
+        print("[RunnerBar] window frame: \(String(describing: button.window?.frame))")
         if popover.isShown {
             popover.performClose(nil)
         } else {
