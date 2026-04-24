@@ -13,15 +13,15 @@ struct ActiveJob: Identifiable {
     var isDimmed: Bool = false
 
     /// Elapsed time:
-    /// - queued jobs (not yet started): "—"
-    /// - completed jobs: frozen start → completedAt
-    /// - active jobs: live start → now
+    /// - queued: 00:00 (not started yet)
+    /// - in_progress: live start → now
+    /// - completed: frozen start → completedAt
     var elapsed: String {
-        guard status != "queued" else { return "—" }
-        guard let start = startedAt ?? createdAt else { return "—" }
+        guard status != "queued" else { return "00:00" }
+        guard let start = startedAt ?? createdAt else { return "00:00" }
         let end = completedAt ?? Date()
         let sec = Int(end.timeIntervalSince(start))
-        guard sec >= 0 else { return "—" }
+        guard sec >= 0 else { return "00:00" }
         let m = sec / 60; let s = sec % 60
         return String(format: "%02d:%02d", m, s)
     }
