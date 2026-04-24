@@ -9,12 +9,14 @@ struct ActiveJob: Identifiable {
     let conclusion: String?  // nil when truly active; non-nil for completed tail
     let startedAt: Date?
     let createdAt: Date?
-    var isDimmed: Bool = false  // true for completed-tail rows
+    let completedAt: Date?   // non-nil for done jobs — used to freeze elapsed
+    var isDimmed: Bool = false
 
-    /// Elapsed time (start → completion for done jobs, start → now for active).
+    /// Fixed duration for done jobs; live ticking for active jobs.
     var elapsed: String {
         guard let start = startedAt ?? createdAt else { return "—" }
-        let sec = Int(Date().timeIntervalSince(start))
+        let end = completedAt ?? Date()
+        let sec = Int(end.timeIntervalSince(start))
         guard sec >= 0 else { return "—" }
         let m = sec / 60; let s = sec % 60
         return String(format: "%02d:%02d", m, s)
@@ -97,8 +99,9 @@ func fetchActiveJobs(for scope: String) -> [ActiveJob] {
             guard j.conclusion == nil else { continue }
             jobs.append(ActiveJob(
                 id: j.id, name: j.name, status: j.status, conclusion: j.conclusion,
-                startedAt: j.startedAt.flatMap { iso.date(from: $0) },
-                createdAt: j.createdAt.flatMap { iso.date(from: $0) }
+                startedAt:   j.startedAt.flatMap   { iso.date(from: $0) },
+                createdAt:   j.createdAt.flatMap   { iso.date(from: $0) },
+                completedAt: nil
             ))
         }
     }
@@ -106,13 +109,12 @@ func fetchActiveJobs(for scope: String) -> [ActiveJob] {
     return jobs.sorted { rank($0) < rank($1) }
 }
 
-// MARK: - Fetch completed tail (last 3 jobs from most recent completed run)
+// MARK: - Fetch completed tail
 
 func fetchRecentCompletedJobs(for scope: String) -> [ActiveJob] {
     guard scope.contains("/") else { return [] }
     let iso = ISO8601DateFormatter()
 
-    // Grab the single most-recent completed run
     guard
         let data = ghAPI("repos/\(scope)/actions/runs?status=completed&per_page=5"),
         let resp = try? JSONDecoder().decode(WorkflowRunsResponse.self, from: data),
@@ -124,7 +126,6 @@ func fetchRecentCompletedJobs(for scope: String) -> [ActiveJob] {
         let jresp = try? JSONDecoder().decode(JobsResponse.self, from: jdata)
     else { return [] }
 
-    // Sort completed jobs newest-first, take 3
     let completed = jresp.jobs
         .filter { $0.conclusion != nil }
         .sorted { ($0.startedAt ?? "") > ($1.startedAt ?? "") }
@@ -133,8 +134,9 @@ func fetchRecentCompletedJobs(for scope: String) -> [ActiveJob] {
     return completed.map { j in
         ActiveJob(
             id: j.id, name: j.name, status: j.status, conclusion: j.conclusion,
-            startedAt: j.startedAt.flatMap { iso.date(from: $0) },
-            createdAt: j.createdAt.flatMap { iso.date(from: $0) },
+            startedAt:   j.startedAt.flatMap   { iso.date(from: $0) },
+            createdAt:   j.createdAt.flatMap   { iso.date(from: $0) },
+            completedAt: j.completedAt.flatMap { iso.date(from: $0) },
             isDimmed: true
         )
     }
@@ -158,10 +160,12 @@ private struct WorkflowRun: Codable { let id: Int }
 private struct JobsResponse: Codable { let jobs: [JobPayload] }
 private struct JobPayload: Codable {
     let id: Int; let name: String; let status: String
-    let conclusion: String?; let startedAt: String?; let createdAt: String?
+    let conclusion: String?
+    let startedAt: String?; let createdAt: String?; let completedAt: String?
     enum CodingKeys: String, CodingKey {
         case id, name, status, conclusion
-        case startedAt = "started_at"
-        case createdAt = "created_at"
+        case startedAt   = "started_at"
+        case createdAt   = "created_at"
+        case completedAt = "completed_at"
     }
 }
