@@ -53,7 +53,7 @@ final class RunnerStore {
         DispatchQueue.global(qos: .background).async { [weak self] in
             guard let self else { return }
 
-            // ── Runners ──────────────────────────────────────────────
+            // ── Runners ──────────────────────────────────────────
             var all: [Runner] = []
             for scope in ScopeStore.shared.scopes {
                 all.append(contentsOf: fetchRunners(for: scope))
@@ -71,18 +71,16 @@ final class RunnerStore {
             }
             let enriched = busyRunners + idleRunners
 
-            // ── Active Jobs ──────────────────────────────────────────
+            // ── Active Jobs ───────────────────────────────────────
             var activeJobs: [ActiveJob] = []
             for scope in ScopeStore.shared.scopes {
                 activeJobs.append(contentsOf: fetchActiveJobs(for: scope))
             }
 
-            // ── Completed tail (shown when nothing is active) ────────
-            // Mirrors ci-dash.py: keep last 3 completed jobs so the
-            // section never goes blank right after a run finishes.
+            // ── Completed tail (shown when nothing active) ───────────
             let topJobs: [ActiveJob]
             if !activeJobs.isEmpty {
-                topJobs = Array(activeJobs.prefix(5))
+                topJobs = Array(activeJobs.prefix(3))  // show 3 max when active
             } else {
                 var tail: [ActiveJob] = []
                 for scope in ScopeStore.shared.scopes {

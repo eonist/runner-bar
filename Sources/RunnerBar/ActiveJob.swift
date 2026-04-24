@@ -9,14 +9,14 @@ struct ActiveJob: Identifiable {
     let conclusion: String?  // nil when truly active; non-nil for completed tail
     let startedAt: Date?
     let createdAt: Date?
-    let completedAt: Date?   // non-nil for done jobs — used to freeze elapsed
     var isDimmed: Bool = false
 
-    /// Fixed duration for done jobs; live ticking for active jobs.
+    /// Elapsed time. Queued jobs (not yet started) always show "—".
+    /// Active/done jobs show start → now (or start → completion once completedAt is added).
     var elapsed: String {
+        guard status != "queued" else { return "—" }
         guard let start = startedAt ?? createdAt else { return "—" }
-        let end = completedAt ?? Date()
-        let sec = Int(end.timeIntervalSince(start))
+        let sec = Int(Date().timeIntervalSince(start))
         guard sec >= 0 else { return "—" }
         let m = sec / 60; let s = sec % 60
         return String(format: "%02d:%02d", m, s)
@@ -99,9 +99,8 @@ func fetchActiveJobs(for scope: String) -> [ActiveJob] {
             guard j.conclusion == nil else { continue }
             jobs.append(ActiveJob(
                 id: j.id, name: j.name, status: j.status, conclusion: j.conclusion,
-                startedAt:   j.startedAt.flatMap   { iso.date(from: $0) },
-                createdAt:   j.createdAt.flatMap   { iso.date(from: $0) },
-                completedAt: nil
+                startedAt: j.startedAt.flatMap { iso.date(from: $0) },
+                createdAt: j.createdAt.flatMap { iso.date(from: $0) }
             ))
         }
     }
@@ -134,9 +133,8 @@ func fetchRecentCompletedJobs(for scope: String) -> [ActiveJob] {
     return completed.map { j in
         ActiveJob(
             id: j.id, name: j.name, status: j.status, conclusion: j.conclusion,
-            startedAt:   j.startedAt.flatMap   { iso.date(from: $0) },
-            createdAt:   j.createdAt.flatMap   { iso.date(from: $0) },
-            completedAt: j.completedAt.flatMap { iso.date(from: $0) },
+            startedAt: j.startedAt.flatMap { iso.date(from: $0) },
+            createdAt: j.createdAt.flatMap { iso.date(from: $0) },
             isDimmed: true
         )
     }
@@ -160,12 +158,10 @@ private struct WorkflowRun: Codable { let id: Int }
 private struct JobsResponse: Codable { let jobs: [JobPayload] }
 private struct JobPayload: Codable {
     let id: Int; let name: String; let status: String
-    let conclusion: String?
-    let startedAt: String?; let createdAt: String?; let completedAt: String?
+    let conclusion: String?; let startedAt: String?; let createdAt: String?
     enum CodingKeys: String, CodingKey {
         case id, name, status, conclusion
-        case startedAt   = "started_at"
-        case createdAt   = "created_at"
-        case completedAt = "completed_at"
+        case startedAt = "started_at"
+        case createdAt = "created_at"
     }
 }
