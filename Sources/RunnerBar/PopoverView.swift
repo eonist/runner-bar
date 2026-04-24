@@ -12,7 +12,7 @@ struct PopoverView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
 
-            // ── Header ───────────────────────────────────────────────
+            // ── Header ────────────────────────────────────────────
             HStack {
                 Text("RunnerBar v0.7")
                     .font(.headline)
@@ -43,7 +43,7 @@ struct PopoverView: View {
 
             Divider()
 
-            // ── Runner list ──────────────────────────────────────────
+            // ── Runner list ────────────────────────────────────────
             if store.runners.isEmpty {
                 Text(isAuthenticated ? "No runners found" : "Authenticate to see runners")
                     .foregroundColor(.secondary)
@@ -71,7 +71,7 @@ struct PopoverView: View {
                 }
             }
 
-            // ── Active Jobs ──────────────────────────────────────────
+            // ── Active Jobs ────────────────────────────────────────
             Divider()
 
             Text("Active Jobs")
@@ -89,7 +89,7 @@ struct PopoverView: View {
                     .padding(.vertical, 4)
                     .padding(.bottom, 2)
             } else {
-                ForEach(store.jobs.prefix(5)) { job in
+                ForEach(store.jobs.prefix(3)) { job in
                     HStack(spacing: 8) {
                         jobDot(for: job)
                         Text(job.name)
@@ -109,8 +109,6 @@ struct PopoverView: View {
                                 .foregroundColor(jobStatusColor(for: job))
                                 .frame(width: 76, alignment: .trailing)
                         }
-                        // Completed jobs have a fixed completedAt anchor so
-                        // elapsed is frozen; active jobs tick via `tick`.
                         Text(job.isDimmed ? job.elapsed : elapsedLive(for: job, tick: tick))
                             .font(.caption.monospacedDigit())
                             .foregroundColor(.secondary)
@@ -124,7 +122,7 @@ struct PopoverView: View {
 
             Divider()
 
-            // ── Scope management ─────────────────────────────────────
+            // ── Scope management ──────────────────────────────────
             VStack(alignment: .leading, spacing: 4) {
                 Text("Scopes")
                     .font(.caption)
@@ -166,7 +164,7 @@ struct PopoverView: View {
 
             Divider()
 
-            // ── Launch at login ──────────────────────────────────────
+            // ── Launch at login ──────────────────────────────────
             Toggle(isOn: $launchAtLogin) {
                 Text("Launch at login").font(.system(size: 13))
             }
@@ -177,7 +175,7 @@ struct PopoverView: View {
 
             Divider()
 
-            // ── Quit ─────────────────────────────────────────────────
+            // ── Quit ───────────────────────────────────────────────
             Button(action: { NSApplication.shared.terminate(nil) }) {
                 HStack {
                     Image(systemName: "xmark.square")
@@ -190,7 +188,8 @@ struct PopoverView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
         }
-        .fixedSize(horizontal: true, vertical: true)
+        .frame(minWidth: 320)
+        .fixedSize(horizontal: false, vertical: true)
         .onReceive(store.objectWillChange) {
             isAuthenticated = (githubToken() != nil)
         }
@@ -203,7 +202,6 @@ struct PopoverView: View {
 
     // MARK: - Elapsed
 
-    /// Only called for active (non-dimmed) jobs — tick dependency forces re-eval every second.
     private func elapsedLive(for job: ActiveJob, tick _: Int) -> String {
         job.elapsed
     }
