@@ -62,7 +62,7 @@ struct PopoverView: View {
                         Text(runner.name)
                             .font(.system(size: 13))
                         Spacer()
-                        Text(runner.busy ? "active" : runner.status == "online" ? "idle" : "offline")
+                        Text(runner.displayStatus)
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
