@@ -6,7 +6,6 @@ struct Runner: Codable, Identifiable {
     let status: String  // "online" or "offline"
     let busy: Bool
 
-    // Populated post-fetch by RunnerStore, not from API
     var busyCount: Int = 1
 
     enum CodingKeys: String, CodingKey {
@@ -15,13 +14,11 @@ struct Runner: Codable, Identifiable {
 
     var displayStatus: String {
         if status == "offline" { return "offline" }
-        if busy {
-            if let m = fetchMetrics(for: name, busyCount: busyCount) {
-                return "active (CPU: \(m.cpu)% MEM: \(m.mem)%)"
-            }
-            return "active"
-        }
-        return "idle"
+        let m = fetchMetrics(for: name, busyCount: busyCount)
+        let cpu = m?.cpu ?? 0
+        let mem = m?.mem ?? 0
+        let label = busy ? "active" : "idle"
+        return "\(label) (CPU: \(cpu)% MEM: \(mem)%)"
     }
 }
 
