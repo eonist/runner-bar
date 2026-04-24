@@ -61,10 +61,13 @@ struct PopoverView: View {
                             .frame(width: 8, height: 8)
                         Text(runner.name)
                             .font(.system(size: 13))
+                            .lineLimit(1)
                         Spacer()
                         Text(runner.displayStatus)
                             .font(.caption)
                             .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .fixedSize()
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 5)
@@ -143,7 +146,7 @@ struct PopoverView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
         }
-        .frame(width: 280)
+        .fixedSize(horizontal: true, vertical: true)
         .onReceive(store.objectWillChange) {
             isAuthenticated = (githubToken() != nil)
         }
