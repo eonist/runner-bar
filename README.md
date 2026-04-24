@@ -4,7 +4,7 @@
 
 # RunnerBar
 
-### GitHub self-hosted runner status, right in your macOS menu bar.
+### Self-hosted GitHub Actions runners, at a glance in your macOS menu bar.
 
 <br/>
 
@@ -17,13 +17,23 @@
 
 <br/>
 
-<img src="app.png" alt="RunnerBar screenshot — menu-bar dot and popover listing self-hosted runners" width="420"/>
+<img src="app.png" alt="RunnerBar screenshot — menu-bar dot and popover listing self-hosted GitHub Actions runners" width="420"/>
+
+<br/>
+
+```bash
+curl -fsSL https://eonist.github.io/runner-bar/install.sh | bash
+```
+
+<sub>One command. No Xcode. No Apple Developer account. No Gatekeeper dialog.</sub>
 
 <br/>
 
 </div>
 
-RunnerBar is a tiny macOS menu-bar app that shows whether your GitHub self-hosted runners are online. A colored dot summarizes state at a glance; click it to see each runner with an `idle` / `active` / `offline` badge. No Xcode, no Apple Developer account, no Gatekeeper dialog — one `curl` command installs it.
+**RunnerBar** is a tiny macOS menu-bar app for developers running self-hosted GitHub Actions runners on their Mac. Instead of opening a browser and clicking through every repo or org to check runner status, a single colored dot tells you at a glance: green if every runner is online, orange if some aren't, red if none are. Click the dot for a list of every runner with an `idle` / `active` / `offline` badge.
+
+It's built to stay out of your way — no Dock icon, no login prompts, no tokens to paste. Auth is reused from the [`gh`](https://cli.github.com) CLI you already have.
 
 <br/>
 
@@ -71,13 +81,13 @@ You'll be running in under a minute.
 
 | Step | Action |
 |:---:|---|
-| 1 | `brew install gh && gh auth login` (once) |
+| 1 | Install and sign in to `gh` once — `brew install gh && gh auth login` |
 | 2 | Install RunnerBar with the `curl` command above |
 | 3 | Click the menu-bar dot to open the popover |
-| 4 | Add a scope — `owner/repo` or a bare `org-name` |
-| 5 | Done. RunnerBar polls every 30 seconds |
+| 4 | Add a scope — `owner/repo` or a bare `org-name` — then press `+` |
+| 5 | Done — RunnerBar polls every 30 seconds |
 
-Optional: toggle **Launch at login** in the popover.
+Optional: toggle **Launch at login** in the popover so RunnerBar starts with your Mac.
 
 <br/>
 
@@ -85,16 +95,16 @@ Optional: toggle **Launch at login** in the popover.
 
 ## ✨ Features
 
-- **Traffic-light menu-bar icon.** `systemGreen` when every runner is online, `systemOrange` when some are offline, `systemRed` when none are online or no scopes are configured. Drawn programmatically in [`StatusIcon.swift`](Sources/RunnerBar/StatusIcon.swift).
-- **Runner list popover.** Each row shows the runner's name and a status badge — `idle`, `active`, or `offline`. See [`PopoverView.swift`](Sources/RunnerBar/PopoverView.swift).
-- **In-popover sign-in.** If `gh` isn't authenticated, a **Sign in with GitHub** button opens Terminal running `gh auth login`. Otherwise you see a green "Authenticated" indicator.
-- **Scopes managed in-app.** Add or remove `owner/repo` slugs and org names from the popover. Persisted in `UserDefaults`. See [`ScopeStore.swift`](Sources/RunnerBar/ScopeStore.swift).
-- **30-second auto-polling.** A `Timer` in [`RunnerStore.swift`](Sources/RunnerBar/RunnerStore.swift) refreshes every configured scope in the background.
-- **Launch at login.** One toggle, backed by `SMAppService` (macOS 13+). See [`LoginItem.swift`](Sources/RunnerBar/LoginItem.swift).
-- **Menu-bar only.** `LSUIElement=true` in [Info.plist](Resources/Info.plist) — no Dock icon, no app-switcher entry.
-- **Universal, tiny.** Single arm64 + x86_64 binary, ad-hoc signed by [`build.sh`](build.sh).
+- **Traffic-light menu-bar icon** — `systemGreen`, `systemOrange`, or `systemRed`, drawn programmatically in [`StatusIcon.swift`](Sources/RunnerBar/StatusIcon.swift).
+- **Runner list popover** — each row shows the runner's name and an `idle` / `active` / `offline` badge. See [`PopoverView.swift`](Sources/RunnerBar/PopoverView.swift).
+- **In-popover sign-in** — if `gh` isn't authenticated, a **Sign in with GitHub** button opens Terminal running `gh auth login`; otherwise a green "Authenticated" indicator is shown.
+- **Scopes managed in-app** — add or remove `owner/repo` slugs and org names from the popover; persisted in `UserDefaults`. See [`ScopeStore.swift`](Sources/RunnerBar/ScopeStore.swift).
+- **30-second auto-polling** — a `Timer` in [`RunnerStore.swift`](Sources/RunnerBar/RunnerStore.swift) refreshes every configured scope in the background.
+- **Launch at login** — a single checkbox, backed by `SMAppService`. See [`LoginItem.swift`](Sources/RunnerBar/LoginItem.swift).
+- **Menu-bar only** — `LSUIElement=true` in [`Info.plist`](Resources/Info.plist), so there's no Dock icon and no app-switcher entry.
+- **Universal and tiny** — one arm64 + x86_64 binary, ad-hoc signed by [`build.sh`](build.sh).
 
-> **v0.1 is read-only.** RunnerBar shows state; it does not register, start, stop, or restart runners, and does not surface workflow logs. See [Out of scope](#-out-of-scope-for-v01).
+> **v0.1 is read-only.** RunnerBar shows runner state. It does not register, start, stop, or restart runners, and does not surface workflow logs. See [Out of scope](#-out-of-scope-for-v01) for the full list of deferred features.
 
 <br/>
 
@@ -102,7 +112,7 @@ Optional: toggle **Launch at login** in the popover.
 
 ## 🚦 Status reference
 
-**Menu-bar icon** — aggregate across all configured scopes, computed in [`RunnerStore.aggregateStatus`](Sources/RunnerBar/RunnerStore.swift):
+**Menu-bar icon** — aggregated across all configured scopes by [`RunnerStore.aggregateStatus`](Sources/RunnerBar/RunnerStore.swift):
 
 | Color | Case | Meaning |
 |:---:|---|---|
@@ -128,7 +138,7 @@ Optional: toggle **Launch at login** in the popover.
 |---|---|
 | **macOS** | 13 Ventura or later |
 | **Architecture** | Apple Silicon or Intel (universal binary) |
-| **[`gh` CLI](https://cli.github.com)** | Installed and authenticated (`brew install gh && gh auth login`) |
+| **[`gh` CLI](https://cli.github.com)** | Installed and authenticated — `brew install gh && gh auth login` |
 
 RunnerBar never stores a token. It resolves auth at runtime in this order — see [`Auth.swift`](Sources/RunnerBar/Auth.swift):
 
@@ -156,7 +166,7 @@ RunnerBar never stores a token. It resolves auth at runtime in this order — se
 ```
 
 1. [`ScopeStore`](Sources/RunnerBar/ScopeStore.swift) stores the scopes you've added in `UserDefaults` under the key `scopes`.
-2. [`RunnerStore`](Sources/RunnerBar/RunnerStore.swift) runs a `Timer` on a 30-second cadence; each tick fetches every scope on a background queue.
+2. [`RunnerStore`](Sources/RunnerBar/RunnerStore.swift) runs a `Timer` on a 30-second cadence and fetches every scope on a background queue each tick.
 3. [`GitHub.swift`](Sources/RunnerBar/GitHub.swift) shells out to the `gh` CLI:
    - Scope contains `/` → `gh api /repos/{owner}/{repo}/actions/runners`
    - Otherwise → `gh api /orgs/{org}/actions/runners`
@@ -207,7 +217,7 @@ swift build        # fast error check
 bash build.sh      # universal release .app in ./dist
 ```
 
-`build.sh` runs `swift build -c release --arch arm64 --arch x86_64`, assembles `dist/RunnerBar.app`, signs it ad-hoc, and produces `dist/RunnerBar.zip` + `dist/version.txt`. Details in [DEVELOPMENT.md](DEVELOPMENT.md); release flow in [DEPLOYMENT.md](DEPLOYMENT.md).
+[`build.sh`](build.sh) runs `swift build -c release --arch arm64 --arch x86_64`, assembles `dist/RunnerBar.app`, signs it ad-hoc, and produces `dist/RunnerBar.zip` plus `dist/version.txt`. Full loop in [DEVELOPMENT.md](DEVELOPMENT.md); release flow in [DEPLOYMENT.md](DEPLOYMENT.md).
 
 <br/>
 
@@ -215,15 +225,16 @@ bash build.sh      # universal release .app in ./dist
 
 ## 🚧 Out of scope for v0.1
 
-Not in the app, not planned for v0.1:
+RunnerBar v0.1 is intentionally minimal — read-only visibility and nothing more. The following are **not** in the app and are **not** planned for v0.1:
 
 - Registering or adding new runners
-- Starting / stopping / restarting runner processes
+- Starting, stopping, or restarting runner processes
 - Workflow run history or job logs
 - Desktop notifications
 - Multi-account or GitHub Enterprise Server support
+- CPU / memory values in the popover *(the model-layer helper exists in [`RunnerMetrics.swift`](Sources/RunnerBar/RunnerMetrics.swift), but [`PopoverView.swift`](Sources/RunnerBar/PopoverView.swift) does not render it)*
 
-Full spec: [issue #1](https://github.com/eonist/runner-bar/issues/1). What's next: [open issues](https://github.com/eonist/runner-bar/issues).
+Full v0.1 spec: [issue #1](https://github.com/eonist/runner-bar/issues/1). What's next: [open issues](https://github.com/eonist/runner-bar/issues).
 
 <br/>
 
@@ -234,13 +245,13 @@ Full spec: [issue #1](https://github.com/eonist/runner-bar/issues/1). What's nex
 <details>
 <summary><strong>Do I need a Personal Access Token?</strong></summary>
 
-No. RunnerBar reuses whatever session `gh auth login` created. To pin a specific token, export `GH_TOKEN` or `GITHUB_TOKEN` before launching.
+No. RunnerBar reuses the session `gh auth login` created. To pin a specific token instead, export `GH_TOKEN` or `GITHUB_TOKEN` before launching the app.
 </details>
 
 <details>
 <summary><strong>The popover says "Sign in with GitHub" but I'm already signed into github.com.</strong></summary>
 
-Auth comes from the `gh` CLI, not the browser. Run `brew install gh && gh auth login`.
+Auth comes from the `gh` CLI, not the browser. Run `brew install gh && gh auth login` and reopen the popover.
 </details>
 
 <details>
@@ -252,13 +263,13 @@ RunnerBar has no Dock icon (`LSUIElement=true`). Look for a small colored circle
 <details>
 <summary><strong>Does it work with GitHub Enterprise Server?</strong></summary>
 
-Not in v0.1. The `gh api` calls use default host resolution and multi-host support isn't implemented.
+Not in v0.1. The `gh api` calls rely on default host resolution and multi-host support isn't implemented.
 </details>
 
 <details>
 <summary><strong>Why is <code>gh</code> hard-coded to <code>/opt/homebrew/bin/gh</code>?</strong></summary>
 
-Menu-bar apps launched via LaunchServices don't inherit a shell <code>PATH</code>, so the path is explicit in <a href="Sources/RunnerBar/Auth.swift"><code>Auth.swift</code></a> and <a href="Sources/RunnerBar/GitHub.swift"><code>GitHub.swift</code></a>. If <code>gh</code> lives elsewhere on your machine, symlink it there.
+Menu-bar apps launched via LaunchServices don't inherit a shell <code>PATH</code>, so the path is explicit in <a href="Sources/RunnerBar/Auth.swift"><code>Auth.swift</code></a> and <a href="Sources/RunnerBar/GitHub.swift"><code>GitHub.swift</code></a>. If <code>gh</code> lives elsewhere on your machine, symlink it into <code>/opt/homebrew/bin/gh</code>.
 </details>
 
 <br/>
@@ -269,10 +280,10 @@ Menu-bar apps launched via LaunchServices don't inherit a shell <code>PATH</code
 
 Conventions, mostly from [AGENTS.md](AGENTS.md):
 
-- **SwiftPM only.** No `.xcodeproj`, `.xcworkspace`, `.xib`, or storyboards.
+- **SwiftPM only** — no `.xcodeproj`, `.xcworkspace`, `.xib`, or storyboards.
 - **No third-party dependencies** unless there's a strong reason.
-- **Programmatic UI only** (AppKit + SwiftUI).
-- **Small, single-responsibility files.** Add a new file rather than growing an existing one.
+- **Programmatic UI only** — AppKit + SwiftUI, no Interface Builder.
+- **Small, single-responsibility files** — add a new file rather than growing an existing one.
 - **macOS 13+**, universal binary.
 
 ```bash
