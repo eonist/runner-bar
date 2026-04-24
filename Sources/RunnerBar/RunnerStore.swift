@@ -71,50 +71,30 @@ final class RunnerStore {
             }
             let enriched = busyRunners + idleRunners
 
-            // ── Active Jobs ──────────────────────────────────────────
+            // ── Active jobs ──────────────────────────────────────────
             var activeJobs: [ActiveJob] = []
             for scope in ScopeStore.shared.scopes {
                 activeJobs.append(contentsOf: fetchActiveJobs(for: scope))
             }
 
             // ── Completed tail ────────────────────────────────────
-            let newJobs: [ActiveJob]
-            if !activeJobs.isEmpty {
-                newJobs = Array(activeJobs.prefix(3))
-            } else {
-                var tail: [ActiveJob] = []
-                for scope in ScopeStore.shared.scopes {
-                    tail.append(contentsOf: fetchRecentCompletedJobs(for: scope))
-                }
-                if !tail.isEmpty {
-                    // Fresh completed data from API — already dimmed + have completedAt.
-                    newJobs = Array(tail.prefix(3))
-                } else {
-                    // GitHub API lag: run not yet marked completed.
-                    // Preserve previous snapshot but freeze each job:
-                    // mark isDimmed=true and pin completedAt=now so elapsed stops ticking.
-                    let now = Date()
-                    newJobs = self.jobs.map { job in
-                        guard !job.isDimmed else { return job } // already frozen
-                        return ActiveJob(
-                            id:          job.id,
-                            name:        job.name,
-                            status:      "completed",
-                            conclusion:  job.conclusion ?? "success",
-                            startedAt:   job.startedAt,
-                            createdAt:   job.createdAt,
-                            completedAt: job.completedAt ?? now,
-                            isDimmed:    true
-                        )
-                    }
-                }
+            var completedTail: [ActiveJob] = []
+            for scope in ScopeStore.shared.scopes {
+                completedTail.append(contentsOf: fetchRecentCompletedJobs(for: scope))
             }
 
-            log("RunnerStore › fetch complete — \(enriched.count) runner(s), \(newJobs.count) job(s)")
+            // Always merge: active first, then completed tail, cap at 3 total.
+            // If completed fetch returned nothing (GitHub API lag), preserve
+            // previous completed jobs (already dimmed+frozen) as the tail.
+            let prevCompleted = self.jobs.filter { $0.isDimmed }
+            let tail = completedTail.isEmpty ? prevCompleted : Array(completedTail.prefix(3))
+            let merged = Array((activeJobs + tail).prefix(3))
+
+            log("RunnerStore › fetch complete — \(enriched.count) runner(s), \(merged.count) job(s) (\(activeJobs.count) active, \(tail.count) tail)")
 
             DispatchQueue.main.async {
                 self.runners = enriched
-                self.jobs    = newJobs
+                self.jobs    = merged
                 self.onChange?()
             }
         }
