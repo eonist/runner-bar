@@ -21,12 +21,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hc.sizingOptions = .preferredContentSize
 
         let popover = NSPopover()
-        popover.behavior = .transient
-        popover.animates = false
+        popover.behavior        = .transient
+        popover.animates        = false
+        popover.contentSize     = NSSize(width: 320, height: 300)
         popover.contentViewController = hc
         self.popover = popover
 
-        // onChange is dispatched to main by RunnerStore — no extra hop needed.
         RunnerStore.shared.onChange = { [weak self] in
             guard let self else { return }
             log("AppDelegate › onChange — refreshing status icon")
