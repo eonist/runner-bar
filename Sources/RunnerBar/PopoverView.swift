@@ -13,7 +13,7 @@ struct PopoverView: View {
 
             // ── Header ───────────────────────────────────────────────
             HStack {
-                Text("RunnerBar v0.4")
+                Text("RunnerBar v0.3")
                     .font(.headline)
                     .foregroundColor(.secondary)
                 Spacer()
@@ -71,24 +71,16 @@ struct PopoverView: View {
             }
 
             // ── Active Jobs ──────────────────────────────────────────
-            // Always show the section; show a placeholder when no jobs are active
-            Divider()
+            if !store.jobs.isEmpty {
+                Divider()
 
-            Text("Active Jobs")
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .padding(.horizontal, 12)
-                .padding(.top, 8)
-                .padding(.bottom, 2)
-
-            if store.jobs.isEmpty {
-                Text("No active jobs")
+                Text("Active Jobs")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 4)
+                    .padding(.top, 8)
                     .padding(.bottom, 2)
-            } else {
+
                 ForEach(store.jobs.prefix(5)) { job in
                     HStack(spacing: 8) {
                         jobDot(for: job)
@@ -101,7 +93,7 @@ struct PopoverView: View {
                             .font(.caption)
                             .foregroundColor(jobStatusColor(for: job))
                             .frame(width: 76, alignment: .trailing)
-                        Text(job.elapsed)
+                        Text(store.tick > 0 ? job.elapsed : job.elapsed) // re-evaluate each tick
                             .font(.caption.monospacedDigit())
                             .foregroundColor(.secondary)
                             .frame(width: 40, alignment: .trailing)
@@ -249,10 +241,15 @@ struct PopoverView: View {
 final class RunnerStoreObservable: ObservableObject {
     @Published var runners: [Runner] = []
     @Published var jobs: [ActiveJob] = []
+    /// Increments every second to drive elapsed re-renders.
+    @Published var tick: Int = 0
+
+    private var tickTimer: Timer?
 
     init() {
         runners = RunnerStore.shared.runners
         jobs    = RunnerStore.shared.jobs
+        startTicking()
     }
 
     func reload() {
@@ -260,4 +257,15 @@ final class RunnerStoreObservable: ObservableObject {
         jobs    = RunnerStore.shared.jobs
         objectWillChange.send()
     }
+
+    private func startTicking() {
+        tickTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            // Only tick when there are active jobs to avoid unnecessary redraws
+            guard !self.jobs.isEmpty else { return }
+            self.tick &+= 1
+        }
+    }
+
+    deinit { tickTimer?.invalidate() }
 }
