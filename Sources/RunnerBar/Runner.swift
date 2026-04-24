@@ -8,7 +8,13 @@ struct Runner: Codable, Identifiable {
 
     var displayStatus: String {
         if status == "offline" { return "offline" }
-        return busy ? "active" : "idle"
+        if busy {
+            if let m = fetchMetrics(for: name) {
+                return "active (CPU: \(m.cpu)% MEM: \(m.mem)%)"
+            }
+            return "active"
+        }
+        return "idle"
     }
 }
 
