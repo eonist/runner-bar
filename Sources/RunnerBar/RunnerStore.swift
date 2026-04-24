@@ -53,7 +53,7 @@ final class RunnerStore {
         DispatchQueue.global(qos: .background).async { [weak self] in
             guard let self else { return }
 
-            // ── Runners ──────────────────────────────────────────
+            // ── Runners ──────────────────────────────────────────────
             var all: [Runner] = []
             for scope in ScopeStore.shared.scopes {
                 all.append(contentsOf: fetchRunners(for: scope))
@@ -71,29 +71,36 @@ final class RunnerStore {
             }
             let enriched = busyRunners + idleRunners
 
-            // ── Active Jobs ───────────────────────────────────────
+            // ── Active Jobs ──────────────────────────────────────────
             var activeJobs: [ActiveJob] = []
             for scope in ScopeStore.shared.scopes {
                 activeJobs.append(contentsOf: fetchActiveJobs(for: scope))
             }
 
-            // ── Completed tail (shown when nothing active) ───────────
-            let topJobs: [ActiveJob]
+            // ── Completed tail ────────────────────────────────────
+            // When active: show up to 3 active jobs.
+            // When idle: show last 3 completed jobs as dimmed tail.
+            // KEY: if the completed fetch returns empty (GitHub API lag after
+            // a run finishes), keep self.jobs from the previous cycle so the
+            // section never flashes blank. Mirrors ci-dash.py prev_completed.
+            let newJobs: [ActiveJob]
             if !activeJobs.isEmpty {
-                topJobs = Array(activeJobs.prefix(3))  // show 3 max when active
+                newJobs = Array(activeJobs.prefix(3))
             } else {
                 var tail: [ActiveJob] = []
                 for scope in ScopeStore.shared.scopes {
                     tail.append(contentsOf: fetchRecentCompletedJobs(for: scope))
                 }
-                topJobs = Array(tail.prefix(3))
+                // Only replace if we actually got something back.
+                // Otherwise preserve the previous snapshot (avoids blank flash).
+                newJobs = tail.isEmpty ? self.jobs : Array(tail.prefix(3))
             }
 
-            log("RunnerStore › fetch complete — \(enriched.count) runner(s), \(topJobs.count) job(s)")
+            log("RunnerStore › fetch complete — \(enriched.count) runner(s), \(newJobs.count) job(s)")
 
             DispatchQueue.main.async {
                 self.runners = enriched
-                self.jobs    = topJobs
+                self.jobs    = newJobs
                 self.onChange?()
             }
         }
