@@ -18,13 +18,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let hc = NSHostingController(rootView: PopoverView(store: observable))
-        hc.sizingOptions = .preferredContentSize
+        // Do NOT set sizingOptions — it causes the popover to resize and jump
+        // every time SwiftUI redraws. Fixed contentSize keeps it anchored.
 
         let popover = NSPopover()
-        popover.behavior        = .transient
-        popover.animates        = false
-        popover.contentSize     = NSSize(width: 320, height: 300)
-        popover.contentViewController = hc
+        popover.behavior               = .transient
+        popover.animates               = false
+        popover.contentSize            = NSSize(width: 320, height: 420)
+        popover.contentViewController  = hc
         self.popover = popover
 
         RunnerStore.shared.onChange = { [weak self] in
