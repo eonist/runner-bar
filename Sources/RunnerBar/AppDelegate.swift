@@ -10,9 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem?.button {
-            let icon = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: "RunnerBar")
-            icon?.isTemplate = true
-            button.image = icon
+            button.image = makeStatusIcon(for: .allOffline)
             button.action = #selector(togglePopover)
             button.target = self
         }
@@ -29,12 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         RunnerStore.shared.onChange = { [weak self] in
             guard let self else { return }
             DispatchQueue.main.async {
-                let icon = NSImage(
-                    systemSymbolName: RunnerStore.shared.aggregateStatus.symbolName,
-                    accessibilityDescription: "RunnerBar"
-                )
-                icon?.isTemplate = true
-                self.statusItem?.button?.image = icon
+                self.statusItem?.button?.image = makeStatusIcon(for: RunnerStore.shared.aggregateStatus)
                 self.observable.reload()
             }
         }
