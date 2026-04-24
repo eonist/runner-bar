@@ -8,6 +8,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let observable = RunnerStoreObservable()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        log("AppDelegate › applicationDidFinishLaunching")
+
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem?.button {
             button.image = makeStatusIcon(for: .allOffline)
@@ -24,12 +26,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover.contentViewController = hc
         self.popover = popover
 
+        // onChange is dispatched to main by RunnerStore — no extra hop needed.
         RunnerStore.shared.onChange = { [weak self] in
             guard let self else { return }
-            DispatchQueue.main.async {
-                self.statusItem?.button?.image = makeStatusIcon(for: RunnerStore.shared.aggregateStatus)
-                self.observable.reload()
-            }
+            log("AppDelegate › onChange — refreshing status icon")
+            self.statusItem?.button?.image = makeStatusIcon(for: RunnerStore.shared.aggregateStatus)
+            self.observable.reload()
         }
 
         RunnerStore.shared.start()
@@ -42,6 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if popover.isShown {
             popover.performClose(nil)
         } else {
+            log("AppDelegate › opening popover")
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
         }
     }
