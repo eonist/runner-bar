@@ -203,7 +203,7 @@ struct PopoverView: View {
 
             Divider()
 
-            // ── Launch at login (macOS 13 compatible onChange)
+            // ── Launch at login (macOS 13 compatible)
             Toggle(isOn: $launchAtLogin) {
                 Text("Launch at login").font(.system(size: 13))
             }
@@ -235,15 +235,7 @@ struct PopoverView: View {
 
     @ViewBuilder
     private func groupRow(for group: JobGroup) -> some View {
-        // Find which scope this group's jobs belong to
-        let jobScope: String = {
-            switch group {
-            case .single(let job):
-                return ScopeStore.shared.scopes.first(where: { _ in true }) ?? ""
-            case .matrix(_, let jobs):
-                return ScopeStore.shared.scopes.first(where: { _ in true }) ?? ""
-            }
-        }()
+        let jobScope = ScopeStore.shared.scopes.first ?? ""
 
         Button(action: {
             withAnimation(.easeInOut(duration: 0.25)) {
