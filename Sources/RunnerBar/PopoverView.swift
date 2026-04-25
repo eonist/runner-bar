@@ -10,194 +10,196 @@ struct PopoverView: View {
     @State private var tick = 0
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
 
-            // ── Header ────────────────────────────────────────────
-            HStack {
-                Text("RunnerBar v0.8")
-                    .font(.headline)
-                    .foregroundColor(.secondary)
-                Spacer()
-                if isAuthenticated {
-                    HStack(spacing: 4) {
-                        Circle().fill(Color.green).frame(width: 8, height: 8)
-                        Text("Authenticated")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                } else {
-                    Button(action: signInWithGitHub) {
+                // ── Header ────────────────────────────────────────────
+                HStack {
+                    Text("RunnerBar v0.8")
+                        .font(.headline)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    if isAuthenticated {
                         HStack(spacing: 4) {
-                            Circle().fill(Color.orange).frame(width: 8, height: 8)
-                            Text("Sign in with GitHub")
+                            Circle().fill(Color.green).frame(width: 8, height: 8)
+                            Text("Authenticated")
                                 .font(.caption)
-                                .foregroundColor(.orange)
+                                .foregroundColor(.secondary)
                         }
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.top, 12)
-            .padding(.bottom, 8)
-
-            Divider()
-
-            // ── Active Jobs ──────────────────────────────────
-            Text("Active Jobs")
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .padding(.horizontal, 12)
-                .padding(.top, 8)
-                .padding(.bottom, 2)
-
-            if store.jobs.isEmpty {
-                Text("No active jobs")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 4)
-                    .padding(.bottom, 2)
-            } else {
-                ForEach(store.jobs.prefix(3)) { job in
-                    HStack(spacing: 8) {
-                        jobDot(for: job)
-                        Text(job.name)
-                            .font(.system(size: 12))
-                            .foregroundColor(job.isDimmed ? .secondary : .primary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        Spacer()
-                        if job.isDimmed {
-                            Text(conclusionLabel(for: job))
-                                .font(.caption)
-                                .foregroundColor(conclusionColor(for: job))
-                                .frame(width: 76, alignment: .trailing)
-                        } else {
-                            Text(jobStatusLabel(for: job))
-                                .font(.caption)
-                                .foregroundColor(jobStatusColor(for: job))
-                                .frame(width: 76, alignment: .trailing)
+                    } else {
+                        Button(action: signInWithGitHub) {
+                            HStack(spacing: 4) {
+                                Circle().fill(Color.orange).frame(width: 8, height: 8)
+                                Text("Sign in with GitHub")
+                                    .font(.caption)
+                                    .foregroundColor(.orange)
+                            }
                         }
-                        Text(job.isDimmed ? job.elapsed : elapsedLive(for: job, tick: tick))
-                            .font(.caption.monospacedDigit())
-                            .foregroundColor(.secondary)
-                            .frame(width: 40, alignment: .trailing)
+                        .buttonStyle(.plain)
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 3)
                 }
-                .padding(.bottom, 6)
-            }
-
-            Divider()
-
-            // ── Local runners ──────────────────────────────────
-            Text("Local runners")
-                .font(.caption)
-                .foregroundColor(.secondary)
                 .padding(.horizontal, 12)
-                .padding(.top, 8)
-                .padding(.bottom, 2)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
 
-            if store.runners.isEmpty {
-                Text(isAuthenticated ? "No runners found" : "Authenticate to see runners")
-                    .foregroundColor(.secondary)
-                    .font(.caption)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 4)
-                    .padding(.bottom, 2)
-            } else {
-                ForEach(store.runners, id: \.id) { runner in
-                    HStack(spacing: 8) {
-                        Circle()
-                            .fill(dotColor(for: runner))
-                            .frame(width: 8, height: 8)
-                        Text(runner.name)
-                            .font(.system(size: 13))
-                            .lineLimit(1)
-                        Spacer()
-                        Text(runner.displayStatus)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                            .fixedSize()
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 5)
-                }
-            }
+                Divider()
 
-            Divider()
-
-            // ── Scope management ────────────────────────────
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Scopes")
+                // ── Active Jobs ──────────────────────────────────
+                Text("Active Jobs")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .padding(.horizontal, 12)
                     .padding(.top, 8)
+                    .padding(.bottom, 2)
 
-                ForEach(ScopeStore.shared.scopes, id: \.self) { scope in
+                if store.jobs.isEmpty {
+                    Text("No active jobs")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 4)
+                        .padding(.bottom, 2)
+                } else {
+                    ForEach(store.jobs.prefix(3)) { job in
+                        HStack(spacing: 8) {
+                            jobDot(for: job)
+                            Text(job.name)
+                                .font(.system(size: 12))
+                                .foregroundColor(job.isDimmed ? .secondary : .primary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                            Spacer()
+                            if job.isDimmed {
+                                Text(conclusionLabel(for: job))
+                                    .font(.caption)
+                                    .foregroundColor(conclusionColor(for: job))
+                                    .frame(width: 76, alignment: .trailing)
+                            } else {
+                                Text(jobStatusLabel(for: job))
+                                    .font(.caption)
+                                    .foregroundColor(jobStatusColor(for: job))
+                                    .frame(width: 76, alignment: .trailing)
+                            }
+                            Text(job.isDimmed ? job.elapsed : elapsedLive(for: job, tick: tick))
+                                .font(.caption.monospacedDigit())
+                                .foregroundColor(.secondary)
+                                .frame(width: 40, alignment: .trailing)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 3)
+                    }
+                    .padding(.bottom, 6)
+                }
+
+                Divider()
+
+                // ── Local runners ──────────────────────────────────
+                Text("Local runners")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+                    .padding(.bottom, 2)
+
+                if store.runners.isEmpty {
+                    Text(isAuthenticated ? "No runners found" : "Authenticate to see runners")
+                        .foregroundColor(.secondary)
+                        .font(.caption)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 4)
+                        .padding(.bottom, 2)
+                } else {
+                    ForEach(store.runners, id: \.id) { runner in
+                        HStack(spacing: 8) {
+                            Circle()
+                                .fill(dotColor(for: runner))
+                                .frame(width: 8, height: 8)
+                            Text(runner.name)
+                                .font(.system(size: 13))
+                                .lineLimit(1)
+                            Spacer()
+                            Text(runner.displayStatus)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                                .fixedSize()
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 5)
+                    }
+                }
+
+                Divider()
+
+                // ── Scope management ────────────────────────────
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Scopes")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 8)
+
+                    ForEach(ScopeStore.shared.scopes, id: \.self) { scope in
+                        HStack {
+                            Text(scope).font(.system(size: 12))
+                            Spacer()
+                            Button(action: {
+                                ScopeStore.shared.remove(scope)
+                                store.reload()
+                            }) {
+                                Image(systemName: "minus.circle")
+                                    .foregroundColor(.red)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 2)
+                    }
+
                     HStack {
-                        Text(scope).font(.system(size: 12))
-                        Spacer()
-                        Button(action: {
-                            ScopeStore.shared.remove(scope)
-                            store.reload()
-                        }) {
-                            Image(systemName: "minus.circle")
-                                .foregroundColor(.red)
+                        TextField("owner/repo or org", text: $newScope)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 12))
+                            .onSubmit { submitScope() }
+                        Button(action: submitScope) {
+                            Image(systemName: "plus.circle")
                         }
                         .buttonStyle(.plain)
+                        .disabled(newScope.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 2)
+                    .padding(.vertical, 4)
                 }
 
-                HStack {
-                    TextField("owner/repo or org", text: $newScope)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 12))
-                        .onSubmit { submitScope() }
-                    Button(action: submitScope) {
-                        Image(systemName: "plus.circle")
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(newScope.trimmingCharacters(in: .whitespaces).isEmpty)
+                Divider()
+
+                // ── Launch at login ────────────────────────────
+                Toggle(isOn: $launchAtLogin) {
+                    Text("Launch at login").font(.system(size: 13))
                 }
+                .toggleStyle(.checkbox)
                 .padding(.horizontal, 12)
-                .padding(.vertical, 4)
-            }
+                .padding(.vertical, 8)
+                .onChange(of: launchAtLogin) { _ in LoginItem.toggle() }
 
-            Divider()
+                Divider()
 
-            // ── Launch at login ────────────────────────────
-            Toggle(isOn: $launchAtLogin) {
-                Text("Launch at login").font(.system(size: 13))
-            }
-            .toggleStyle(.checkbox)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .onChange(of: launchAtLogin) { _ in LoginItem.toggle() }
-
-            Divider()
-
-            // ── Quit ────────────────────────────────────────
-            Button(action: { NSApplication.shared.terminate(nil) }) {
-                HStack {
-                    Image(systemName: "xmark.square")
-                    Text("Quit")
+                // ── Quit ────────────────────────────────────────
+                Button(action: { NSApplication.shared.terminate(nil) }) {
+                    HStack {
+                        Image(systemName: "xmark.square")
+                        Text("Quit")
+                    }
+                    .font(.system(size: 13))
                 }
-                .font(.system(size: 13))
+                .buttonStyle(.plain)
+                .keyboardShortcut("q", modifiers: .command)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
             }
-            .buttonStyle(.plain)
-            .keyboardShortcut("q", modifiers: .command)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .frame(width: 320)
         }
-        .frame(minWidth: 320)
-        .fixedSize(horizontal: false, vertical: true)
+        .frame(width: 320, height: 460)
         .onReceive(store.objectWillChange) {
             isAuthenticated = (githubToken() != nil)
         }

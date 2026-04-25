@@ -18,12 +18,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let hc = NSHostingController(rootView: PopoverView(store: observable))
+        // sizingOptions drives initial size from SwiftUI, but we also set a
+        // fixed contentSize so macOS never repositions the popover on redraws.
         hc.sizingOptions = .preferredContentSize
 
         let popover = NSPopover()
-        popover.behavior    = .transient
-        popover.animates    = false
-        popover.contentViewController = hc
+        popover.behavior               = .transient
+        popover.animates               = false
+        popover.contentSize            = NSSize(width: 320, height: 460)
+        popover.contentViewController  = hc
         self.popover = popover
 
         RunnerStore.shared.onChange = { [weak self] in
