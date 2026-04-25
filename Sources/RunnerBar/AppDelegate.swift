@@ -8,11 +8,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hc: NSHostingController<PopoverView>?
     private let observable = RunnerStoreObservable()
 
-    // Fixed popover size — never changes, so NSPopover never re-anchors (no left-jump).
-    static let popoverSize = NSSize(width: 340, height: 480)
+    // INVARIANT: Do NOT set popover.contentSize manually.
+    // INVARIANT: Do NOT change sizingOptions away from .preferredContentSize.
+    // The root PopoverView uses .frame(idealWidth: 340) which locks
+    // preferredContentSize.width = 340 always. Height is driven by SwiftUI content.
+    // NSPopover reads preferredContentSize and resizes height-only => no left-jump.
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        log("AppDelegate › applicationDidFinishLaunching")
+        log("AppDelegate > applicationDidFinishLaunching")
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem?.button {
@@ -22,19 +25,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let hc = NSHostingController(rootView: PopoverView(store: observable))
-        // Do NOT set sizingOptions — fixed contentSize below controls all sizing.
+        // .preferredContentSize: NSHostingController tracks SwiftUI ideal size.
+        // Root view uses idealWidth=340 so width in preferredContentSize is always 340.
+        // Height changes => popover grows/shrinks downward only, no horizontal movement.
+        hc.sizingOptions = .preferredContentSize
         self.hc = hc
 
         let popover = NSPopover()
         popover.behavior              = .transient
         popover.animates              = false
         popover.contentViewController = hc
-        popover.contentSize           = Self.popoverSize
+        // Do NOT set popover.contentSize here — preferredContentSize drives it.
         self.popover = popover
 
         RunnerStore.shared.onChange = { [weak self] in
             guard let self else { return }
-            log("AppDelegate › onChange — refreshing status icon")
+            log("AppDelegate > onChange - refreshing status icon")
             self.statusItem?.button?.image = makeStatusIcon(for: RunnerStore.shared.aggregateStatus)
             self.observable.reload()
         }
@@ -49,7 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if popover.isShown {
             popover.performClose(nil)
         } else {
-            log("AppDelegate › opening popover")
+            log("AppDelegate > opening popover")
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
         }
     }
