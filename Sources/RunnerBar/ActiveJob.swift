@@ -38,6 +38,18 @@ struct JobStep: Identifiable {
 
 // MARK: - ActiveJob
 
+// ⚠️ REGRESSION GUARD — callsites (ref issue #54)
+// This struct is constructed in EXACTLY 3 places in RunnerStore.swift.
+// If you add, remove, or rename ANY property, you MUST update all 3 sites
+// in the SAME commit or the build will fail with "missing argument" errors.
+//
+// The 3 construction sites:
+//   1. fetchActiveJobs()            — live jobs fetched from the GitHub API
+//   2. Vanished-job freeze block    — RunnerStore.fetch(), "snapPrev" diff loop
+//   3. Fresh-done freeze block      — RunnerStore.fetch(), "freshDone" loop
+//
+// Before pushing any model change, verify:
+//   grep -rn 'ActiveJob(' Sources/
 struct ActiveJob: Identifiable {
     let id: Int
     let name: String
@@ -143,6 +155,7 @@ func fetchActiveJobs(for scope: String) -> [ActiveJob] {
                     completedAt: s.completedAt.flatMap { iso.date(from: $0) }
                 )
             }
+            // ⚠️ CALLSITE 1 of 3 — see ActiveJob callsite warning above
             jobs.append(ActiveJob(
                 id:          j.id,
                 name:        j.name,

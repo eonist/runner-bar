@@ -1,6 +1,16 @@
 import SwiftUI
 import ServiceManagement
 
+// ⚠️ REGRESSION GUARD — layout rules (ref issue #54)
+// 1. Do NOT add .frame(height:) anywhere in this file.
+//    Height is owned exclusively by AppDelegate (mainHeight / detailHeight constants).
+//    This view fills whatever frame AppDelegate gives it via .frame(maxWidth/maxHeight: .infinity).
+// 2. The Spacer() inside each job row HStack is load-bearing.
+//    Removing it causes all text to left-align when job names change length — the left-jump.
+// 3. All rows use .padding(.horizontal, 12) — keep this uniform across every row.
+//    Mismatched padding causes visible column shifts between states.
+// 4. Do NOT use .fixedSize(horizontal: true, ...) on any container —
+//    dynamic width causes the popover anchor to drift left.
 struct PopoverMainView: View {
     @ObservedObject var store: RunnerStoreObservable
     let onSelectJob: (ActiveJob) -> Void
@@ -52,7 +62,7 @@ struct PopoverMainView: View {
                                 .font(.system(size: 12))
                                 .foregroundColor(job.isDimmed ? .secondary : .primary)
                                 .lineLimit(1).truncationMode(.tail)
-                            Spacer()
+                            Spacer() // ⚠️ load-bearing — do not remove (prevents left-jump)
                             Text(job.isDimmed ? conclusionLabel(for: job) : jobStatusLabel(for: job))
                                 .font(.caption)
                                 .foregroundColor(job.isDimmed ? conclusionColor(for: job) : jobStatusColor(for: job))
@@ -129,6 +139,8 @@ struct PopoverMainView: View {
             .keyboardShortcut("q", modifiers: .command)
             .padding(.horizontal, 12).padding(.vertical, 8)
         }
+        // ⚠️ REGRESSION GUARD: .frame(maxWidth/maxHeight: .infinity) fills AppDelegate's fixed frame.
+        // Do NOT replace with .frame(height: X) or .fixedSize() — both cause sizing regressions.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onReceive(store.objectWillChange) { isAuthenticated = (githubToken() != nil) }
         .onAppear { Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in tick += 1 } }

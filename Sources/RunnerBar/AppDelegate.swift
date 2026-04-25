@@ -8,6 +8,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hc: NSHostingController<AnyView>?
     private let observable = RunnerStoreObservable()
 
+    // ⚠️ REGRESSION GUARD — width/height (ref issue #54)
+    // WIDTH must ALWAYS be 320. Never make it dynamic or derive it from fittingSize.
+    // Dynamic width causes the popover to jump left on every data update.
+    // Heights are the ONLY place dimensions are defined — PopoverMainView must NOT
+    // set its own .frame(height:). The views fill whatever size AppDelegate gives them.
+    // sizingOptions MUST remain [] — .preferredContentSize causes SwiftUI to resize
+    // the popover on every layout pass, which also causes the left-jump.
     private static let width: CGFloat        = 320
     private static let mainHeight: CGFloat   = 360
     private static let detailHeight: CGFloat = 460
@@ -22,7 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let size = NSSize(width: Self.width, height: Self.mainHeight)
         let hc = NSHostingController(rootView: mainView())
-        hc.sizingOptions = []
+        hc.sizingOptions = []  // ⚠️ NEVER change to .preferredContentSize — causes left-jump
         hc.view.frame = NSRect(origin: .zero, size: size)
         self.hc = hc
 
@@ -56,7 +63,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Swap content and resize the popover WITHOUT closing it.
-    /// NSPopover keeps its anchor fixed — no left-jump ever.
+    /// ⚠️ REGRESSION GUARD: NEVER navigate by calling performClose() + show().
+    /// Closing and reopening the popover causes macOS to re-anchor it from scratch,
+    /// which shifts it left. Always swap hc.rootView in-place instead.
     private func navigate(to view: AnyView, height: CGFloat) {
         guard let popover, let hc else { return }
         let newSize = NSSize(width: Self.width, height: height)

@@ -29,6 +29,17 @@ final class RunnerStore {
     private(set) var runners: [Runner] = []
     private(set) var jobs: [ActiveJob] = []
 
+    // ⚠️ REGRESSION GUARD — completed job persistence (ref issue #54)
+    // prevLiveJobs: full snapshot of the LIVE jobs from the previous poll.
+    //   Used to detect vanished jobs (were live, now gone) and freeze them into cache.
+    // completedCache: the ONLY reliable source of done jobs.
+    //   - NEVER clear this between polls — persistence depends on it surviving.
+    //   - NEVER replace with fetchRecentCompletedJobs() alone — GitHub API lags
+    //     10-30 seconds before marking a run 'completed', causing done jobs to vanish.
+    //   - Jobs are frozen in from TWO sources every poll:
+    //       a) jobs with conclusion != nil inside still-active runs (immediate)
+    //       b) jobs that disappear from prevLiveJobs between polls (vanished)
+    //   - Trimmed to newest 3 entries to cap memory.
     private var prevLiveJobs: [Int: ActiveJob] = [:]
     private var completedCache: [Int: ActiveJob] = [:]
 
@@ -45,7 +56,7 @@ final class RunnerStore {
 
     func start() {
         log("RunnerStore › start")
-        timer?.invalidate()
+        timer?.invalidate()  // ⚠️ Always invalidate before creating a new timer — prevents stacking
         fetch()
         timer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
             self?.fetch()
@@ -87,7 +98,8 @@ final class RunnerStore {
 
             var newCache = snapCache
 
-            // Vanished jobs — freeze with last known data
+            // ⚠️ CALLSITE 2 of 3 — Vanished jobs: were live last poll, gone now.
+            // Freeze with last known data. completedAt defaults to now if API had none.
             for (id, job) in snapPrev where !liveIDs.contains(id) {
                 guard newCache[id] == nil else { continue }
                 newCache[id] = ActiveJob(
@@ -103,7 +115,8 @@ final class RunnerStore {
                 )
             }
 
-            // Fresh done — overwrite with real conclusion
+            // ⚠️ CALLSITE 3 of 3 — Fresh done: jobs with a conclusion inside active runs.
+            // Overwrite cache entry with real conclusion data from the API.
             for job in freshDone {
                 newCache[job.id] = ActiveJob(
                     id:          job.id,
@@ -129,6 +142,7 @@ final class RunnerStore {
 
             let newPrevLive = Dictionary(uniqueKeysWithValues: liveJobs.map { ($0.id, $0) })
 
+            // Display order: in_progress → queued → done (newest first), max 3 total
             let inProgress = liveJobs.filter { $0.status == "in_progress" }
             let queued     = liveJobs.filter { $0.status == "queued" }
             let cached     = newCache.values
