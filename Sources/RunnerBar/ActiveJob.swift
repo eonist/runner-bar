@@ -34,15 +34,6 @@ struct JobStep: Identifiable {
             }
         }
     }
-
-    var conclusionColor: String {
-        switch conclusion {
-        case "success":  return "green"
-        case "failure":  return "red"
-        case "skipped":  return "secondary"
-        default:         return "secondary"
-        }
-    }
 }
 
 // MARK: - ActiveJob
@@ -55,10 +46,10 @@ struct ActiveJob: Identifiable {
     let startedAt: Date?
     let createdAt: Date?
     let completedAt: Date?
+    let htmlUrl: String?       // GitHub job page URL
     var isDimmed: Bool = false
     var steps: [JobStep] = []
 
-    /// queued → 00:00 | in_progress → live | completed → frozen
     var elapsed: String {
         guard status != "queued" else { return "00:00" }
         guard let start = startedAt ?? createdAt else { return "00:00" }
@@ -160,6 +151,7 @@ func fetchActiveJobs(for scope: String) -> [ActiveJob] {
                 startedAt:   j.startedAt.flatMap   { iso.date(from: $0) },
                 createdAt:   j.createdAt.flatMap   { iso.date(from: $0) },
                 completedAt: j.completedAt.flatMap { iso.date(from: $0) },
+                htmlUrl:     j.htmlUrl,
                 steps:       steps
             ))
         }
@@ -194,11 +186,13 @@ private struct JobPayload: Codable {
     let startedAt: String?
     let createdAt: String?
     let completedAt: String?
+    let htmlUrl: String?
     let steps: [StepPayload]?
     enum CodingKeys: String, CodingKey {
         case id, name, status, conclusion, steps
         case startedAt   = "started_at"
         case createdAt   = "created_at"
         case completedAt = "completed_at"
+        case htmlUrl     = "html_url"
     }
 }

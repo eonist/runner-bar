@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct JobDetailView: View {
@@ -47,31 +48,48 @@ struct JobDetailView: View {
                     .padding(.vertical, 8)
             } else {
                 ForEach(job.steps) { step in
-                    HStack(spacing: 8) {
-                        Text(step.conclusionIcon)
-                            .font(.system(size: 11))
-                            .foregroundColor(stepColor(step))
-                            .frame(width: 14, alignment: .center)
-                        Text(step.name)
-                            .font(.system(size: 12))
-                            .foregroundColor(step.status == "queued" ? .secondary : .primary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Spacer()
-                        Text(step.elapsed)
-                            .font(.caption.monospacedDigit())
-                            .foregroundColor(.secondary)
-                            .frame(width: 40, alignment: .trailing)
+                    Button(action: { openLog(step: step) }) {
+                        HStack(spacing: 8) {
+                            Text(step.conclusionIcon)
+                                .font(.system(size: 11))
+                                .foregroundColor(stepColor(step))
+                                .frame(width: 14, alignment: .center)
+                            Text(step.name)
+                                .font(.system(size: 12))
+                                .foregroundColor(step.status == "queued" ? .secondary : .primary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer()
+                            Text(step.elapsed)
+                                .font(.caption.monospacedDigit())
+                                .foregroundColor(.secondary)
+                                .frame(width: 40, alignment: .trailing)
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 3)
+                        .contentShape(Rectangle())
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 3)
+                    .buttonStyle(.plain)
                 }
             }
 
             Spacer(minLength: 8)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear {
             Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in tick += 1 }
+        }
+    }
+
+    private func openLog(step: JobStep) {
+        // GitHub log URL anchored to the step number
+        let base = job.htmlUrl ?? "https://github.com"
+        let urlString = "\(base)#step:\(step.id)"
+        if let url = URL(string: urlString) {
+            NSWorkspace.shared.open(url)
         }
     }
 
