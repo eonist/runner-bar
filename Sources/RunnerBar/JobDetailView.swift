@@ -8,7 +8,7 @@ struct JobDetailView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
 
-            // ── Back + header
+            // ── Back + elapsed
             HStack(spacing: 6) {
                 Button(action: onBack) {
                     HStack(spacing: 3) {
@@ -70,8 +70,6 @@ struct JobDetailView: View {
 
             Spacer(minLength: 8)
         }
-        .frame(minWidth: 320)
-        .fixedSize(horizontal: false, vertical: true)
         .onAppear {
             Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in tick += 1 }
         }
@@ -83,8 +81,7 @@ struct JobDetailView: View {
         switch step.conclusion {
         case "success":  return .green
         case "failure":  return .red
-        default:
-            return step.status == "in_progress" ? .yellow : .secondary
+        default:         return step.status == "in_progress" ? .yellow : .secondary
         }
     }
 }

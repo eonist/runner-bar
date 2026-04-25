@@ -11,15 +11,15 @@ struct PopoverView: View {
     @State private var selectedJob: ActiveJob? = nil
 
     var body: some View {
-        Group {
+        VStack(spacing: 0) {
             if let job = selectedJob {
                 JobDetailView(job: job, onBack: { selectedJob = nil })
             } else {
                 mainView
             }
         }
-        .frame(minWidth: 320)
-        .fixedSize(horizontal: false, vertical: true)
+        .frame(width: 320)
+        .fixedSize(horizontal: true, vertical: true)
     }
 
     // MARK: - Main list view
