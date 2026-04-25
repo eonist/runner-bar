@@ -61,13 +61,12 @@ struct PopoverView: View {
     // MARK: - Job list view
 
     private var jobListView: some View {
-        // Outer ScrollView so content never overflows the fixed frame
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
 
                 // ── Header
                 HStack {
-                    Text("RunnerBar v0.8")
+                    Text("RunnerBar v0.9")
                         .font(.headline)
                         .foregroundColor(.secondary)
                     Spacer()
@@ -201,7 +200,7 @@ struct PopoverView: View {
 
                 Divider()
 
-                // ── Launch at login (macOS 13 compatible)
+                // ── Launch at login
                 Toggle(isOn: $launchAtLogin) {
                     Text("Launch at login").font(.system(size: 13))
                 }
