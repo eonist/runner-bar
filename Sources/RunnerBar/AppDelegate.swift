@@ -17,16 +17,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.target = self
         }
 
+        // sizingOptions = .preferredContentSize causes the popover to jump left
+        // whenever SwiftUI recomputes its size on data updates. Omitting it lets
+        // the popover stay anchored to the status item. .fixedSize() in PopoverView
+        // handles intrinsic sizing correctly.
         let hc = NSHostingController(rootView: PopoverView(store: observable))
-        // sizingOptions drives initial size from SwiftUI, but we also set a
-        // fixed contentSize so macOS never repositions the popover on redraws.
-        hc.sizingOptions = .preferredContentSize
 
         let popover = NSPopover()
-        popover.behavior               = .transient
-        popover.animates               = false
-        popover.contentSize            = NSSize(width: 320, height: 460)
-        popover.contentViewController  = hc
+        popover.behavior    = .transient
+        popover.animates    = false
+        popover.contentViewController = hc
         self.popover = popover
 
         RunnerStore.shared.onChange = { [weak self] in
