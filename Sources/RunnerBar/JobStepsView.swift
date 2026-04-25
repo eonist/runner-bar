@@ -71,7 +71,8 @@ struct JobStepsView: View {
                         .padding(.vertical, 8)
                 } else {
                     ForEach(steps) { step in
-                        let tappable = step.status == "completed" && !step.isSkipped
+                        // All completed steps are tappable — expired/skipped logs show a friendly message
+                        let tappable = step.status == "completed"
                         Button(action: {
                             guard tappable else { return }
                             selectedStep = step
@@ -87,7 +88,7 @@ struct JobStepsView: View {
 
                                 Spacer()
 
-                                if step.status == "completed" || step.isSkipped {
+                                if step.status == "completed" {
                                     Text(conclusionLabel(for: step))
                                         .font(.caption)
                                         .foregroundColor(conclusionColor(for: step))
@@ -113,7 +114,7 @@ struct JobStepsView: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .opacity(step.isDimmed ? 0.5 : 1.0)
+                        .opacity(step.isDimmed ? 0.6 : 1.0)
                     }
                     .padding(.bottom, 6)
                 }
