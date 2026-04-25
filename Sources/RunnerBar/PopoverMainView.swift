@@ -32,7 +32,7 @@ struct PopoverMainView: View {
         VStack(alignment: .leading, spacing: 0) {
 
             HStack {
-                Text("RunnerBar v0.8")
+                Text("RunnerBar v0.9")
                     .font(.headline)
                     .foregroundColor(.secondary)
                 Spacer()
@@ -166,8 +166,8 @@ struct PopoverMainView: View {
     }
     private func conclusionLabel(for job: ActiveJob) -> String {
         switch job.conclusion {
-        case "success": return "\u2713 success"; case "failure": return "\u2717 failure"
-        case "cancelled": return "\u2296 cancelled"; case "skipped": return "\u2212 skipped"
+        case "success": return "✓ success"; case "failure": return "✗ failure"
+        case "cancelled": return "⊖ cancelled"; case "skipped": return "− skipped"
         default: return job.conclusion ?? "done"
         }
     }
