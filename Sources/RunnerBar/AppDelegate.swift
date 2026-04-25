@@ -9,7 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let observable = RunnerStoreObservable()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        log("AppDelegate \u203a applicationDidFinishLaunching")
+        log("AppDelegate > applicationDidFinishLaunching")
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem?.button {
@@ -19,8 +19,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let hc = NSHostingController(rootView: PopoverView(store: observable))
-        // Let SwiftUI drive the popover height via its own intrinsic size.
-        // The PopoverView caps jobListView at maxHeight:480, so it never grows unbounded.
+        // Let SwiftUI drive the popover height via its intrinsic size.
+        // PopoverView caps jobListView at maxHeight:480 so it never grows unbounded.
         hc.sizingOptions = .preferredContentSize
         self.hc = hc
 
@@ -28,13 +28,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover.behavior              = .transient
         popover.animates              = false
         popover.contentViewController = hc
-        // Width is fixed; height is driven by sizingOptions above.
-        hc.view.setFrameSize(NSSize(width: 340, height: hc.view.fittingSize.height))
         self.popover = popover
 
         RunnerStore.shared.onChange = { [weak self] in
             guard let self else { return }
-            log("AppDelegate \u203a onChange \u2014 refreshing status icon")
+            log("AppDelegate > onChange - refreshing status icon")
             self.statusItem?.button?.image = makeStatusIcon(for: RunnerStore.shared.aggregateStatus)
             self.observable.reload()
         }
@@ -49,7 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if popover.isShown {
             popover.performClose(nil)
         } else {
-            log("AppDelegate \u203a opening popover")
+            log("AppDelegate > opening popover")
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
         }
     }
