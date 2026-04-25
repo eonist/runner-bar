@@ -4,19 +4,28 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var statusItem: NSStatusItem?
-    private var panel: StatusPanel?
+    private var popover: NSPopover?
     private let observable = RunnerStoreObservable()
+    private static let fixedSize = NSSize(width: 320, height: 480)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem?.button {
             button.image = makeStatusIcon(for: .allOffline)
-            button.action = #selector(togglePanel)
+            button.action = #selector(togglePopover)
             button.target = self
         }
 
-        let rootView = PopoverMainView(store: observable)
-        panel = StatusPanel(rootView: rootView)
+        let hc = NSHostingController(rootView: PopoverMainView(store: observable))
+        hc.sizingOptions = [] // never auto-resize — prevents anchor recalculation
+        hc.view.frame = NSRect(origin: .zero, size: Self.fixedSize)
+
+        let popover = NSPopover()
+        popover.behavior             = .transient
+        popover.animates             = false
+        popover.contentSize          = Self.fixedSize
+        popover.contentViewController = hc
+        self.popover = popover
 
         RunnerStore.shared.onChange = { [weak self] in
             guard let self else { return }
@@ -26,21 +35,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         RunnerStore.shared.start()
     }
 
-    @objc private func togglePanel() {
+    @objc private func togglePopover() {
         guard let button = statusItem?.button,
-              let buttonWindow = button.window,
-              let panel else { return }
-
-        if panel.isVisible {
-            panel.orderOut(nil)
+              button.window != nil,
+              let popover else { return }
+        if popover.isShown {
+            popover.performClose(nil)
         } else {
-            // Calculate position: directly below the status bar button.
-            let buttonRect = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
-            let panelSize  = panel.frame.size
-            let x = buttonRect.midX - panelSize.width / 2
-            let y = buttonRect.minY - panelSize.height
-            panel.setFrameOrigin(NSPoint(x: x, y: y))
-            panel.makeKeyAndOrderFront(nil)
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
+            popover.contentViewController?.view.window?.makeKey()
         }
     }
 }

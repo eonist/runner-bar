@@ -1,6 +1,8 @@
 import SwiftUI
 import ServiceManagement
 
+private let kFixedHeight: CGFloat = 480
+
 struct PopoverMainView: View {
     @ObservedObject var store: RunnerStoreObservable
     @State private var selectedJob: ActiveJob? = nil
@@ -10,22 +12,31 @@ struct PopoverMainView: View {
     @State private var tick = 0
 
     var body: some View {
-        // Navigation lives here in SwiftUI — no NSPopover anchor to break.
-        Group {
-            if let job = selectedJob {
-                JobDetailView(job: job, onBack: { selectedJob = nil })
-            } else {
-                mainView
-            }
+        // Both layers occupy the SAME fixed frame.
+        // Opacity swap means NSPopover never sees a size change — no anchor bug.
+        ZStack(alignment: .topLeading) {
+            mainView
+                .frame(width: 320, height: kFixedHeight)
+                .opacity(selectedJob == nil ? 1 : 0)
+                .allowsHitTesting(selectedJob == nil)
+
+            detailLayer
+                .frame(width: 320, height: kFixedHeight)
+                .opacity(selectedJob != nil ? 1 : 0)
+                .allowsHitTesting(selectedJob != nil)
         }
-        // Clip and style the panel content.
-        .frame(width: 320)
-        .background(Color(NSColor.windowBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color(NSColor.separatorColor), lineWidth: 0.5)
-        )
+        .frame(width: 320, height: kFixedHeight)
+    }
+
+    // Detail layer always rendered (but invisible) so no layout change occurs.
+    @ViewBuilder
+    private var detailLayer: some View {
+        if let job = selectedJob {
+            JobDetailView(job: job, onBack: { selectedJob = nil })
+        } else {
+            // Placeholder keeps the layer in the tree at the same size.
+            Color.clear
+        }
     }
 
     private var mainView: some View {
@@ -33,8 +44,7 @@ struct PopoverMainView: View {
 
             HStack {
                 Text("RunnerBar v0.9")
-                    .font(.headline)
-                    .foregroundColor(.secondary)
+                    .font(.headline).foregroundColor(.secondary)
                 Spacer()
                 if isAuthenticated {
                     HStack(spacing: 4) {
@@ -50,9 +60,7 @@ struct PopoverMainView: View {
                     }.buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.top, 12)
-            .padding(.bottom, 8)
+            .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 8)
 
             Divider()
 
@@ -102,7 +110,8 @@ struct PopoverMainView: View {
                         Circle().fill(dotColor(for: runner)).frame(width: 8, height: 8)
                         Text(runner.name).font(.system(size: 13)).lineLimit(1)
                         Spacer()
-                        Text(runner.displayStatus).font(.caption).foregroundColor(.secondary).lineLimit(1).fixedSize()
+                        Text(runner.displayStatus)
+                            .font(.caption).foregroundColor(.secondary).lineLimit(1).fixedSize()
                     }
                     .padding(.horizontal, 12).padding(.vertical, 5)
                 }
@@ -148,6 +157,8 @@ struct PopoverMainView: View {
             .buttonStyle(.plain)
             .keyboardShortcut("q", modifiers: .command)
             .padding(.horizontal, 12).padding(.vertical, 8)
+
+            Spacer(minLength: 0)
         }
         .onReceive(store.objectWillChange) { isAuthenticated = (githubToken() != nil) }
         .onAppear { Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in tick += 1 } }
@@ -161,9 +172,7 @@ struct PopoverMainView: View {
     private func jobStatusLabel(for job: ActiveJob) -> String {
         switch job.status { case "in_progress": return "In Progress"; case "queued": return "Queued"; default: return "Done" }
     }
-    private func jobStatusColor(for job: ActiveJob) -> Color {
-        job.status == "in_progress" ? .yellow : .secondary
-    }
+    private func jobStatusColor(for job: ActiveJob) -> Color { job.status == "in_progress" ? .yellow : .secondary }
     private func conclusionLabel(for job: ActiveJob) -> String {
         switch job.conclusion {
         case "success": return "✓ success"; case "failure": return "✗ failure"
