@@ -19,7 +19,7 @@ import SwiftUI
 //   preferredContentSize causes NSPopover to re-anchor on every hc.rootView
 //   swap. When navigate() swaps main→detail or detail→main, SwiftUI computes
 //   a new ideal size. NSPopover sees contentSize change → re-anchors X+Y
-//   → left-jump. This was v0.25’s mistake.
+//   → left-jump. This was v0.25's mistake.
 //   ❌ NEVER change sizingOptions to .preferredContentSize
 //
 // ── THE LEFT-JUMP RULE (#52 #54) ────────────────────────────────────────────
@@ -29,8 +29,19 @@ import SwiftUI
 //
 // ── THE HEIGHT-FITS-CONTENT RULE (#57) ───────────────────────────────────────
 //   Height is computed fresh in openPopover() every time before show().
-//   openPopover() is ONLY called from togglePopover()’s else-branch,
+//   openPopover() is ONLY called from togglePopover()'s else-branch,
 //   where isShown==false is guaranteed. Safe to resize there.
+//
+// ── WHY openPopover() USES max(mainHeight, detailHeight) ─────────────────────
+//   navigate() fires while the popover IS open → cannot resize (left-jump).
+//   So both main view and detail view share the same fixed frame set at open.
+//   main view:   content is shorter → Spacer() at bottom absorbs slack (fine)
+//   detail view: content is taller  → needs detailHeight to avoid centering
+//   Solution: open at max(mainHeight, detailHeight) every time.
+//   Main view shows minor empty space at bottom. Detail view fills correctly.
+//   Both views use .frame(maxWidth:.infinity, maxHeight:.infinity, alignment:.top)
+//   so they always pin to the top of whatever frame they receive.
+//   ❌ NEVER use a smaller height that only fits main view — detail clips/centers.
 //
 // ── SAFE OPERATIONS PER CALL SITE ───────────────────────────────────────────
 //
@@ -59,6 +70,8 @@ import SwiftUI
 //   ❌ setFrameSize while isShown==true → left-jump
 //   ❌ hc.rootView in openPopover() → deferred layout → left-jump
 //   ❌ .frame(idealWidth:) on views → only meaningful under preferredContentSize
+//   ❌ computeMainHeight() alone as popover height → detail view gets too-small
+//      frame → content vertically centered. Always use openPopoverHeight().
 //
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -73,10 +86,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let fixedWidth: CGFloat = 320
 
     // MARK: — Height computation
-    //
+
     // Computes main-view height from current store state.
-    // ⚠️ Called ONLY from openPopover() where isShown == false.
-    // ⚠️ NEVER call from onChange, navigate(), or any other site.
+    // ⚠️ Called ONLY from openPopoverHeight() → openPopover(). Never elsewhere.
     //
     // Pixel budget (must match PopoverMainView.swift padding values EXACTLY):
     //   header:              44px  (paddingTop 12 + content + paddingBottom 8)
@@ -106,14 +118,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return max(h, 200)
     }
 
-    // Height for the detail view: fixed at enough to show all steps comfortably.
-    // Steps are ~26px each. Header ~60px. Divider + padding ~20px.
-    // Max 20 steps = 520 + 80 = 600px, but cap at 520 to stay on screen.
-    // ⚠️ This is set in openPopover() ONLY when navigating, not during navigation.
-    // ⚠️ We CANNOT resize during navigate() (popover is open = left-jump).
-    // ⚠️ So detail height is set at OPEN time based on last known job.
-    // For now use a fixed generous height that fits most step lists.
-    private static let detailHeight: CGFloat = 480
+    // Detail view height budget:
+    //   header (back + elapsed):  26px
+    //   job name:                 36px
+    //   divider:                   1px
+    //   each step row:            26px  (paddingVertical 3 each side + content ~20)
+    //   cap at 20 steps max:     520px
+    //   bottom spacer:             8px
+    //   Total max:               591px — capped at 560 to stay on screen
+    private static let detailHeight: CGFloat = 560
+
+    // The height used when opening the popover.
+    // MUST be max(main, detail) so that both views fit their frame correctly.
+    // main view receives extra space → Spacer() absorbs it (harmless)
+    // detail view receives correct space → content pins to top (correct)
+    // ❌ NEVER use computeMainHeight() alone here — detail view vertically centers.
+    private static func openPopoverHeight() -> CGFloat {
+        return max(computeMainHeight(), detailHeight)
+    }
 
     // MARK: — App lifecycle
 
@@ -125,7 +147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.target = self
         }
 
-        let initialSize = NSSize(width: Self.fixedWidth, height: Self.computeMainHeight())
+        let initialSize = NSSize(width: Self.fixedWidth, height: Self.openPopoverHeight())
         let hc = NSHostingController(rootView: mainView())
         // ⚠️ sizingOptions MUST be [] (empty). NEVER .preferredContentSize.
         // .preferredContentSize causes re-anchor on every hc.rootView swap.
@@ -163,7 +185,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AnyView(JobDetailView(job: job, onBack: { [weak self] in
             guard let self else { return }
             self.navigate(to: self.mainView())
-            // ⚠️ No size change here. openPopover() resizes on next open.
         }))
     }
 
@@ -173,7 +194,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // navigate() fires while the popover IS open (user tapped inside it).
     // .transient only closes on clicks OUTSIDE — not on taps inside.
     // Any contentSize/setFrameSize here = popover visible = LEFT-JUMP.
-    // Width and height stay as set by openPopover(). No exceptions. No compromises.
+    // Both views share the frame set by openPopover() (openPopoverHeight()).
+    // main view: Spacer() absorbs extra height (harmless).
+    // detail view: .frame(maxWidth:.infinity,maxHeight:.infinity,alignment:.top) pins to top.
     private func navigate(to view: AnyView) {
         guard let hc else { return }
         hc.rootView = view
@@ -188,7 +211,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // openPopover() — the ONE safe site for sizing.
-    // Called ONLY from togglePopover()’s else-branch: isShown==false guaranteed.
+    // Called ONLY from togglePopover()'s else-branch: isShown==false guaranteed.
     // popover.contentSize on a CLOSED popover does NOT trigger macOS re-anchor.
     //
     // ⚠️ DO NOT reassign hc.rootView here.
@@ -198,16 +221,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     //   hc.rootView is already mainView() because:
     //     • We initialise it as mainView() in applicationDidFinishLaunching.
     //     • navigate()-to-Back always resets it to mainView().
-    //     • .transient closes before any outside-click; user can’t open while on detail.
+    //     • .transient closes before any outside-click; user can't open while on detail.
     private func openPopover() {
         guard let button = statusItem?.button,
               button.window != nil,
               let popover,
               let hc else { return }
 
-        // Resize to fit current content. Safe: isShown==false (see above).
-        // ⚠️ NO hc.rootView change here.
-        let h = Self.computeMainHeight()
+        // ⚠️ Use openPopoverHeight() — NOT computeMainHeight() alone.
+        // openPopoverHeight() = max(mainHeight, detailHeight).
+        // This ensures detail view always gets enough vertical space.
+        // main view receives extra space → Spacer() absorbs it → no visual difference.
+        let h = Self.openPopoverHeight()
         let newSize = NSSize(width: Self.fixedWidth, height: h)
         hc.view.setFrameSize(newSize)
         popover.contentSize = newSize
