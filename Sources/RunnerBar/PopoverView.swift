@@ -5,12 +5,12 @@ import ServiceManagement
 // ============================================================
 // ⚠️⚠️⚠️  STOP. READ THIS ENTIRE COMMENT BEFORE TOUCHING THIS FILE.  ⚠️⚠️⚠️
 // ============================================================
-// VERSION: v2.0 (keep in sync with AppDelegate.swift)
+// VERSION: v2.1 (keep in sync with AppDelegate.swift)
 //
 // This file defines the root SwiftUI view inside an NSPopover.
 // The sizing relationship between SwiftUI and NSPopover is extremely
 // fragile. The left-jump bug was introduced and re-introduced 30+
-// times in a single day before all 7 root causes were identified.
+// times before all root causes were identified.
 //
 // READ AppDelegate.swift SECTION 1 for the full explanation of WHY
 // NSPopover behaves this way. This comment covers the SwiftUI side.
@@ -19,7 +19,7 @@ import ServiceManagement
 // SECTION 1: THE FRAME CONTRACT (all rules must hold simultaneously)
 // ============================================================
 //
-// RULE 1: The root Group MUST use .frame(idealWidth: 340)
+// RULE 1: The root Group MUST use .frame(idealWidth: 340, minHeight: 480)
 //
 //   NSHostingController with sizingOptions=.preferredContentSize reads
 //   the SwiftUI layout engine's IDEAL size (not min, not max, not the
@@ -28,132 +28,84 @@ import ServiceManagement
 //   .frame(idealWidth: 340)  => ideal width = 340  ✔ CORRECT
 //   .frame(width: 340)       => layout width = 340, ideal width = BROKEN
 //
-//   .frame(width: 340) does NOT set the ideal width. It sets a layout
-//   constraint. In the context of NSHostingController.preferredContentSize,
-//   .frame(width:) causes the ideal width to be reported as something
-//   other than 340 in certain navigation states, causing the width to
-//   fluctuate => NSPopover re-anchors => left jump.
+//   minHeight: 480 is REQUIRED (CAUSE 8 fix).
+//   Without it, the root Group reports different ideal heights per nav state:
+//     .jobList  => height = content height (e.g. 240pt when few jobs)
+//     .jobSteps => height = 480pt (pinned by JobStepsView's frame)
+//   The height change fires preferredContentSize update => NSPopover re-anchors
+//   => left jump on EVERY navigation from jobList to steps.
+//   minHeight: 480 on the root Group prevents the height from ever going
+//   below 480pt, matching all child nav views. No height delta => no re-anchor.
 //
+//   DO NOT REMOVE minHeight: 480.
 //   DO NOT CHANGE .frame(idealWidth: 340) TO .frame(width: 340).
-//   They look equivalent. They are NOT.
 //
 // RULE 2: The root Group MUST be the outermost container
 //
-//   The .frame(idealWidth: 340) modifier must be on the direct parent
-//   of the switch statement. If you wrap the Group in a VStack, ZStack,
-//   or any other container, the ideal width propagation changes and
-//   preferredContentSize.width may no longer be reliably 340.
+//   The .frame(idealWidth: 340, minHeight: 480) modifier must be on the
+//   direct parent of the switch statement.
 //
 // RULE 3: The jobList nav state MUST use fixedSize + maxHeight, NOT height
 //
 //   .fixedSize(horizontal: false, vertical: true) tells SwiftUI to use
 //   the view's natural (ideal) vertical size rather than expanding to fill.
-//   Without it, the view expands to fill the available height (480pt)
-//   even when content is short => large empty space below content.
-//
 //   .frame(maxHeight: 480) caps the height at 480pt for long lists.
-//   .frame(height: 480) sets EXACTLY 480pt even for short lists => empty space.
-//   .frame(maxHeight: 480) is correct. .frame(height: 480) is wrong.
-//
 //   DO NOT wrap jobListView in a ScrollView.
-//   ScrollView reports infinite preferred height => preferredContentSize
-//   height explodes => popover becomes huge => re-anchor => left jump.
 //
 // RULE 4: ALL child nav views MUST use maxWidth, NOT width
 //
-//   JobStepsView, MatrixGroupView, StepLogView all appear inside the
-//   root Group's switch statement. They MUST use:
+//   JobStepsView, MatrixGroupView all use:
 //     .frame(maxWidth: .infinity, minHeight: 480, maxHeight: 480)
-//
-//   They must NEVER use:
-//     .frame(width: 340, ...)  ← overrides ideal width => left jump
-//     .frame(width: 340, height: 480)  ← same problem
-//
-//   maxWidth: .infinity expands to fill the space that the parent Group's
-//   idealWidth: 340 has established. This keeps the ideal width at 340
-//   across all navigation states.
-//
-//   The child view files (JobStepsView.swift, MatrixGroupView.swift,
-//   StepLogView.swift) apply .frame(maxWidth: .infinity, ...) on their
-//   own body. The PopoverView switch does NOT need to add frames to them.
+//   They MUST NEVER use .frame(width: 340, ...).
 //
 // ============================================================
 // SECTION 2: NAVIGATION CONTRACT
 // ============================================================
 //
 // Navigation is implemented as a @State NavState enum + Group + switch.
-// This is NOT arbitrary. Each alternative was tried and broke things:
 //
-//   ✘ NavigationStack / NavigationView
-//       => Has its own sizing logic that fights NSHostingController.
-//          Width jumps on push/pop.
-//
-//   ✘ ZStack with .opacity or .transition
-//       => ZStack measures the MAX of all children's sizes simultaneously.
-//          Even invisible children affect preferredContentSize.
-//
-//   ✘ ZStack with .transition(.move(edge: .leading))
-//       => In NSPopover context, ZStack collapses to zero width during
-//          the transition. The move animation plays from the LEFT EDGE
-//          OF THE SCREEN, not from within the popover. Looks identical
-//          to the left-jump bug.
-//
-//   ✔ Group + switch (current approach)
-//       => Group has zero layout overhead. It measures exactly one child
-//          at a time (the active switch branch). No phantom size from
-//          inactive branches. Clean navigation with no transition artifacts.
+//   ✘ NavigationStack / NavigationView => fights NSHostingController sizing
+//   ✘ ZStack with .opacity or .transition => measures all children at once
+//   ✘ ZStack with .transition(.move) => collapses to zero width, plays from left edge
+//   ✔ Group + switch (current approach) => measures exactly one child at a time
 //
 // DO NOT add .transition() to any case in the switch statement.
-// Transitions change the view's reported size during the animation.
-// Even .transition(.identity) can affect the layout pass timing.
 //
 // ============================================================
-// SECTION 3: WHAT WILL HAPPEN IF YOU BREAK THESE RULES
+// SECTION 3: SYMPTOMS AND CAUSES
 // ============================================================
 //
 // Symptom A — Popover flies to far left on open:
-//   Caused by: preferredContentSize.width is wrong on first render.
-//   Most likely: .frame(width:340) instead of .frame(idealWidth:340).
+//   Cause: preferredContentSize.width is wrong. .frame(width:) not idealWidth.
 //
 // Symptom B — Popover jumps left when navigating to steps/matrix view:
-//   Caused by: child view reports a different ideal width than 340.
-//   Most likely: .frame(width:340) in a child view fighting the parent.
+//   Cause: child view reports different ideal width than 340.
 //
 // Symptom C — Popover jumps left every ~10 seconds while open:
-//   Caused by: observable.reload() called while popover is open.
-//   See AppDelegate.swift CAUSE 2.
+//   Cause: observable.reload() called while popover is open. CAUSE 2.
 //
-// Symptom D — Popover opens and immediately closes on every click:
-//   Caused by: objectWillChange pending at moment of show().
-//   See AppDelegate.swift CAUSE 3 and CAUSE 6.
+// Symptom D — Popover opens and immediately closes:
+//   Cause: objectWillChange pending at show(). CAUSE 3 or CAUSE 6.
 //
-// Symptom E — Large empty space below content when no jobs are running:
-//   Caused by: .frame(height:480) instead of .fixedSize+.frame(maxHeight:480).
-//   Or: jobListView wrapped in ScrollView.
+// Symptom E — Large empty space below content when no jobs:
+//   Cause: .frame(height:480) instead of .fixedSize+.frame(maxHeight:480).
 //
-// Symptom F — Popover jumps left only on the very first open:
-//   Caused by: popoverIsOpen set after reload() in togglePopover.
-//   See AppDelegate.swift CAUSE 4.
+// Symptom F — Popover jumps only on first open:
+//   Cause: popoverIsOpen set after reload() in togglePopover. CAUSE 4.
 //
 // Symptom G — Popover jumps ~2 seconds after navigating to steps view:
-//   Caused by: loadSteps() async result landing after JobStepsView appears.
-//   The @State change (isLoading=false, steps=result) re-renders the view.
-//   See AppDelegate.swift CAUSE 7 and JobStepsView.swift CAUSE 7 section.
-//   Fix: steps are now pre-loaded in groupRow before navigation.
+//   Cause: async step load fires @State change after appear. CAUSE 7.
+//
+// Symptom H — Popover jumps immediately when tapping any job row:
+//   Cause: root Group has no minHeight. Height changes from jobList (short)
+//   to jobSteps (480pt) on navigation. CAUSE 8. Fix: minHeight:480 on root.
 //
 // ============================================================
 
 // MARK: - Navigation state
 
-// ⚠️ This enum drives ALL navigation in the popover.
-// NavState now carries pre-loaded steps in .jobSteps to prevent CAUSE 7.
-// Do NOT add associated values that contain large data structures.
-// Do NOT add more cases without reading SECTION 2.
 private enum NavState: Equatable {
     case jobList
-    // ⚠️ steps: [JobStep] is pre-loaded BEFORE this state is set.
-    // This prevents JobStepsView from doing async loading after appear.
-    // See CAUSE 7 in AppDelegate.swift and JobStepsView.swift.
     case jobSteps(job: ActiveJob, steps: [JobStep], scope: String)
     case matrixGroup(baseName: String, jobs: [ActiveJob], scope: String)
 
@@ -178,30 +130,15 @@ struct PopoverView: View {
     @State private var navState: NavState = .jobList
 
     var body: some View {
-        // ⚠️ RULE: This outer container MUST be a Group.
-        // See SECTION 2: NavigationStack, ZStack, etc. all break sizing.
-        // Group has zero layout overhead and measures exactly one child.
         Group {
             switch navState {
 
             case .jobList:
                 jobListView
-                    // ⚠️ RULE: .fixedSize(vertical:true) MUST be here.
-                    // Makes SwiftUI use natural content height instead of
-                    // expanding to fill. Without this => large empty space.
-                    // See SECTION 1 RULE 3.
                     .fixedSize(horizontal: false, vertical: true)
-                    // ⚠️ RULE: .frame(maxHeight:) NOT .frame(height:).
-                    // maxHeight caps long content at 480pt.
-                    // height:480 forces short content to 480pt => empty space.
-                    // See SECTION 1 RULE 3.
                     .frame(maxHeight: 480, alignment: .top)
 
             case .jobSteps(let job, let steps, let scope):
-                // ⚠️ steps are PRE-LOADED. JobStepsView renders immediately.
-                // JobStepsView applies its own .frame(maxWidth:.infinity, ...)
-                // on its body. Do NOT add .frame(width:340) here.
-                // See SECTION 1 RULE 4 and CAUSE 7.
                 JobStepsView(
                     job: job,
                     steps: steps,
@@ -210,9 +147,6 @@ struct PopoverView: View {
                 )
 
             case .matrixGroup(let baseName, let jobs, let scope):
-                // MatrixGroupView applies its own .frame(maxWidth:.infinity, ...)
-                // on its body. Do NOT add .frame(width:340) here.
-                // See SECTION 1 RULE 4.
                 MatrixGroupView(
                     baseName: baseName,
                     jobs: jobs,
@@ -221,25 +155,23 @@ struct PopoverView: View {
                 )
             }
         }
-        // ⚠️⚠️⚠️  THIS IS THE MOST IMPORTANT LINE IN THIS FILE.  ⚠️⚠️⚠️
+        // ⚠️⚠️⚠️  BOTH PARAMETERS ARE MANDATORY.  ⚠️⚠️⚠️
         //
-        // .frame(idealWidth: 340) sets the SwiftUI IDEAL width to 340pt.
-        // NSHostingController.preferredContentSize reads the ideal size.
-        // This keeps preferredContentSize.width = 340 across ALL nav states.
-        // That stable width is what prevents the left-jump.
+        // idealWidth: 340 — locks preferredContentSize.width = 340 across
+        //   all nav states. DO NOT change to width: 340.
         //
-        // CHANGING THIS TO .frame(width: 340) WILL BREAK EVERYTHING.
-        // They look the same. They are not the same.
-        // .frame(width: 340) = layout constraint (does NOT set ideal width)
-        // .frame(idealWidth: 340) = ideal size hint (DOES set ideal width)
+        // minHeight: 480 — CAUSE 8 FIX. Prevents height from being shorter
+        //   than 480pt in the jobList state (which has dynamic height).
+        //   Without this, navigating jobList→jobSteps changes ideal height
+        //   from e.g. 240pt to 480pt => preferredContentSize update =>
+        //   NSPopover re-anchors => left jump on every tap.
+        //   All child nav views already pin to minHeight:480 on their own
+        //   body frame. This root frame ensures jobList matches them.
         //
-        // DO NOT ADD minWidth, maxWidth, height, or any other parameter here.
-        // DO NOT MOVE THIS MODIFIER to any child view.
-        // DO NOT REMOVE THIS MODIFIER.
-        .frame(idealWidth: 340)
+        // DO NOT REMOVE EITHER PARAMETER.
+        // DO NOT ADD maxHeight here — jobList controls its own max via .frame(maxHeight:480).
+        .frame(idealWidth: 340, minHeight: 480)
         .onReceive(store.objectWillChange) {
-            // ⚠️ This fires exactly ONCE per reload() because StoreState is
-            // a single @Published property. See RunnerStoreObservable below.
             isAuthenticated = (githubToken() != nil)
         }
         .onAppear {
@@ -248,15 +180,9 @@ struct PopoverView: View {
     }
 
     // MARK: - Job list view
-    //
-    // ⚠️ This view is used ONLY in the .jobList nav state.
-    // It is wrapped in .fixedSize + .frame(maxHeight:) in the switch above.
-    // DO NOT add those modifiers here as well — double application causes
-    // incorrect height calculation.
     private var jobListView: some View {
         VStack(alignment: .leading, spacing: 0) {
 
-            // Header — RunnerBar v2.0
             HStack {
                 Text("RunnerBar v2.0")
                     .font(.headline)
@@ -411,39 +337,13 @@ struct PopoverView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
 
-        } // end VStack (jobListView)
-        // ⚠️ DO NOT add .fixedSize or .frame modifiers here.
-        // Those are applied in the switch statement above to control
-        // how the Group measures this view. Adding them here too
-        // creates double application and breaks height calculation.
+        } // end VStack
     }
 
     // MARK: - Group row builder
     //
-    // ⚠️⚠️⚠️  PRE-LOADING STEPS HERE IS REQUIRED TO PREVENT CAUSE 7.  ⚠️⚠️⚠️
-    //
-    // When the user taps a job row, we DO NOT immediately navigate to .jobSteps.
-    // Instead, we fetch the steps first on a background thread, THEN navigate.
-    //
-    // WHY:
-    //   If we navigate first and load steps inside JobStepsView.onAppear,
-    //   the async result arrives ~2 seconds later, changing @State (isLoading,
-    //   steps). That @State change fires a SwiftUI re-render while the popover
-    //   is open. The re-render recalculates preferredContentSize. NSPopover
-    //   re-anchors. Left jump.
-    //
-    // HOW:
-    //   1. User taps row => loadStepsAndNavigate() called
-    //   2. Popover is still showing jobListView (no size change)
-    //   3. Background fetch completes (takes ~0.5-2 seconds)
-    //   4. navState = .jobSteps(job:steps:scope:) set on main queue
-    //   5. JobStepsView appears with steps already populated
-    //   6. No async load in JobStepsView = no @State change after appear
-    //   7. No re-render = no preferredContentSize change = no jump
-    //
-    // ⚠️ DO NOT change this to navigate immediately and load inside JobStepsView.
-    // ⚠️ The brief delay while fetching is acceptable UX (typically <0.5s on LAN).
-    // ⚠️ If the fetch fails, steps will be [] and JobStepsView shows "No steps found".
+    // ⚠️ CAUSE 7 FIX: loadStepsAndNavigate fetches BEFORE navigating.
+    // DO NOT change to navigate-first pattern.
 
     @ViewBuilder
     private func groupRow(for group: JobGroup) -> some View {
@@ -496,10 +396,7 @@ struct PopoverView: View {
         .buttonStyle(.plain)
     }
 
-    // ⚠️ CAUSE 7 FIX: Fetch steps BEFORE navigating.
-    // Background fetch => main queue navState update => JobStepsView appears with data.
-    // DO NOT inline this into the Button action as navigate-then-load.
-    // See groupRow comment above for full explanation.
+    // ⚠️ CAUSE 7 FIX: fetch steps BEFORE navigating.
     private func loadStepsAndNavigate(job: ActiveJob, scope: String) {
         DispatchQueue.global(qos: .userInitiated).async {
             let steps = fetchJobSteps(jobID: job.id, scope: scope)
@@ -587,29 +484,12 @@ struct PopoverView: View {
 
 // MARK: - Observable
 
-// ============================================================
-// ⚠️⚠️⚠️  RunnerStoreObservable — READ BEFORE TOUCHING  ⚠️⚠️⚠️
-// ============================================================
-// VERSION HISTORY:
-//   v1.7: runners + jobs as two separate @Published properties => 2-3x publishes
-//   v1.8: removed explicit objectWillChange.send() => still 2x from @Published
-//   v1.9: Merged into ONE @Published StoreState struct => 1x publish per reload()
-//   v2.0: No changes to observable. StoreState fix from v1.9 is correct and final.
-//
-// ONE @Published property = ONE Combine publish per reload() = ONE SwiftUI re-render.
-// DO NOT split back into separate @Published properties.
-// DO NOT add objectWillChange.send() anywhere in this class.
-// ============================================================
-
 struct StoreState {
     var runners: [Runner]   = []
     var jobs: [ActiveJob]   = []
 }
 
 final class RunnerStoreObservable: ObservableObject {
-    // ⚠️ ONE @Published property. ONE Combine publish per reload().
-    // Do NOT add more @Published properties to this class.
-    // If you need new data, add fields to StoreState instead.
     @Published var state: StoreState = StoreState()
 
     init() {
@@ -620,10 +500,6 @@ final class RunnerStoreObservable: ObservableObject {
     }
 
     func reload() {
-        // ⚠️⚠️⚠️  SINGLE ASSIGNMENT. DO NOT SPLIT.  ⚠️⚠️⚠️
-        // One StoreState struct assignment = one @Published fire = one re-render.
-        // Splitting into two assignments = two publishes = two re-renders = left jump.
-        // DO NOT add objectWillChange.send() after this line.
         state = StoreState(
             runners: RunnerStore.shared.runners,
             jobs:    RunnerStore.shared.jobs
