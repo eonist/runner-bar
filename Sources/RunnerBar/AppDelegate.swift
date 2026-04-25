@@ -17,11 +17,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.target = self
         }
 
-        // sizingOptions = .preferredContentSize causes the popover to jump left
-        // whenever SwiftUI recomputes its size on data updates. Omitting it lets
-        // the popover stay anchored to the status item. .fixedSize() in PopoverView
-        // handles intrinsic sizing correctly.
         let hc = NSHostingController(rootView: PopoverView(store: observable))
+        hc.sizingOptions = .preferredContentSize
 
         let popover = NSPopover()
         popover.behavior    = .transient
