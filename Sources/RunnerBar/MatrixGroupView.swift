@@ -3,9 +3,9 @@ import SwiftUI
 // ============================================================
 // ⚠️⚠️⚠️  STOP. READ THIS ENTIRE COMMENT BEFORE TOUCHING THIS FILE.  ⚠️⚠️⚠️
 // ============================================================
-// VERSION: v1.7
+// VERSION: v2.1 (keep in sync with AppDelegate.swift)
 //
-// This view is rendered inside PopoverView’s root Group as the
+// This view is rendered inside PopoverView's root Group as the
 // .matrixGroup navigation state. It exists inside an NSPopover
 // whose sizing is extremely fragile. Read PopoverView.swift SECTION 1
 // and AppDelegate.swift SECTION 1 before making any changes.
@@ -25,7 +25,7 @@ import SwiftUI
 // ✔ YES: .frame(maxWidth: .infinity, minHeight: 480, maxHeight: 480)
 //
 // Changing width:340 instead of maxWidth:.infinity causes the ideal
-// width to be reported differently from the root Group’s idealWidth:340,
+// width to be reported differently from the root Group's idealWidth:340,
 // making preferredContentSize.width fluctuate across navigation states,
 // triggering NSPopover to re-anchor its screen position => left jump.
 //
@@ -45,6 +45,26 @@ import SwiftUI
 //   => This was tried. It was catastrophic. Do not try it again.
 //
 // ============================================================
+// CAUSE 7 — WHY STEPS ARE PRE-LOADED HERE (v2.1)
+// ============================================================
+//
+// JobStepsView now requires steps to be passed as an init parameter
+// (pre-loaded before navigation). It no longer fetches its own data.
+// This prevents @State changes after the view appears, which would
+// change preferredContentSize => NSPopover re-anchors => left jump.
+//
+// When the user taps a job variant here, we:
+//   1. Set isLoadingJob = true  (show a spinner row)
+//   2. Fetch steps in the background
+//   3. On completion, set selectedJob + selectedSteps  (navigate)
+//
+// The popover height does NOT change during the spinner because this
+// view is already at .frame(minHeight:480, maxHeight:480). The spinner
+// is content inside the fixed frame, not a size change.
+//
+// ⚠️ DO NOT call JobStepsView without pre-loading steps.
+// ⚠️ DO NOT pass an empty [] steps array and load inside JobStepsView.
+// ============================================================
 
 struct MatrixGroupView: View {
     let baseName: String
@@ -53,6 +73,8 @@ struct MatrixGroupView: View {
     let onBack: () -> Void
 
     @State private var selectedJob: ActiveJob? = nil
+    @State private var selectedSteps: [JobStep] = []
+    @State private var isLoadingJob: ActiveJob? = nil
     @State private var tick = 0
 
     var body: some View {
@@ -65,8 +87,12 @@ struct MatrixGroupView: View {
                 // The two frames compose correctly — do not add another frame here.
                 JobStepsView(
                     job: job,
+                    steps: selectedSteps,
                     scope: scope,
-                    onBack: { selectedJob = nil }
+                    onBack: {
+                        selectedJob = nil
+                        selectedSteps = []
+                    }
                 )
             } else {
                 variantListView
@@ -112,11 +138,17 @@ struct MatrixGroupView: View {
                 Divider()
 
                 ForEach(jobs) { job in
-                    Button(action: { selectedJob = job }) {
+                    Button(action: { loadAndNavigate(to: job) }) {
                         HStack(spacing: 8) {
-                            Circle()
-                                .fill(dotColor(for: job))
-                                .frame(width: 7, height: 7)
+                            if isLoadingJob?.id == job.id {
+                                ProgressView()
+                                    .scaleEffect(0.6)
+                                    .frame(width: 7, height: 7)
+                            } else {
+                                Circle()
+                                    .fill(dotColor(for: job))
+                                    .frame(width: 7, height: 7)
+                            }
 
                             Text(job.matrixVariant ?? job.name)
                                 .font(.system(size: 12))
@@ -153,6 +185,7 @@ struct MatrixGroupView: View {
                     }
                     .buttonStyle(.plain)
                     .opacity(job.isDimmed ? 0.7 : 1.0)
+                    .disabled(isLoadingJob != nil)
                 }
                 .padding(.bottom, 6)
 
@@ -160,6 +193,21 @@ struct MatrixGroupView: View {
         } // end ScrollView
         .onAppear {
             Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in tick += 1 }
+        }
+    }
+
+    // MARK: - Pre-load steps then navigate
+
+    private func loadAndNavigate(to job: ActiveJob) {
+        guard isLoadingJob == nil else { return }
+        isLoadingJob = job
+        Task {
+            let steps = await JobStep.fetchJobSteps(jobID: job.id, scope: scope)
+            await MainActor.run {
+                selectedSteps = steps
+                selectedJob = job
+                isLoadingJob = nil
+            }
         }
     }
 
