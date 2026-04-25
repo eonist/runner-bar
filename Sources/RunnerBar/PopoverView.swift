@@ -33,18 +33,16 @@ struct PopoverView: View {
         Group {
             switch navState {
             case .jobList:
-                // Fits to content, capped at 480pt tall
                 jobListView
                     .frame(width: 340)
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxHeight: 480)
+                    .frame(maxHeight: 480, alignment: .top)
             case .jobSteps(let job, let scope):
                 JobStepsView(
                     job: job,
                     scope: scope,
                     onBack: { navState = .jobList }
                 )
-                // JobStepsView already applies .frame(width:340, height:480) internally
             case .matrixGroup(let baseName, let jobs, let scope):
                 MatrixGroupView(
                     baseName: baseName,
