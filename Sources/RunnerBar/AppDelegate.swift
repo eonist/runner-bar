@@ -43,26 +43,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func mainView() -> AnyView {
         AnyView(PopoverMainView(store: observable, onSelectJob: { [weak self] job in
-            self?.navigate(to: self?.detailView(job: job), height: Self.detailHeight)
+            guard let self else { return }
+            self.navigate(to: self.detailView(job: job), height: Self.detailHeight)
         }))
     }
 
     private func detailView(job: ActiveJob) -> AnyView {
         AnyView(JobDetailView(job: job, onBack: { [weak self] in
-            self?.navigate(to: self?.mainView(), height: Self.mainHeight)
+            guard let self else { return }
+            self.navigate(to: self.mainView(), height: Self.mainHeight)
         }))
     }
 
     /// Swap content and resize the popover WITHOUT closing it.
     /// NSPopover keeps its anchor fixed — no left-jump ever.
-    private func navigate(to view: AnyView?, height: CGFloat) {
-        guard let view, let popover, let hc else { return }
+    private func navigate(to view: AnyView, height: CGFloat) {
+        guard let popover, let hc else { return }
         let newSize = NSSize(width: Self.width, height: height)
-        // 1. Swap SwiftUI content
         hc.rootView = view
-        // 2. Resize hosting view
         hc.view.setFrameSize(newSize)
-        // 3. Update popover contentSize in-place (no close/reopen)
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0
             popover.contentSize = newSize
