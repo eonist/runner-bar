@@ -5,12 +5,12 @@ import ServiceManagement
 // ============================================================
 // ⚠️⚠️⚠️  STOP. READ THIS ENTIRE COMMENT BEFORE TOUCHING THIS FILE.  ⚠️⚠️⚠️
 // ============================================================
-// VERSION: v1.7 (keep in sync with AppDelegate.swift)
+// VERSION: v1.8 (keep in sync with AppDelegate.swift)
 //
 // This file defines the root SwiftUI view inside an NSPopover.
 // The sizing relationship between SwiftUI and NSPopover is extremely
 // fragile. The left-jump bug was introduced and re-introduced 30+
-// times in a single day before all 4 root causes were identified.
+// times in a single day before all 5 root causes were identified.
 //
 // READ AppDelegate.swift SECTION 1 for the full explanation of WHY
 // NSPopover behaves this way. This comment covers the SwiftUI side.
@@ -22,7 +22,7 @@ import ServiceManagement
 // RULE 1: The root Group MUST use .frame(idealWidth: 340)
 //
 //   NSHostingController with sizingOptions=.preferredContentSize reads
-//   the SwiftUI layout engine’s IDEAL size (not min, not max, not the
+//   the SwiftUI layout engine's IDEAL size (not min, not max, not the
 //   resolved layout size) to compute preferredContentSize.
 //
 //   .frame(idealWidth: 340)  => ideal width = 340  ✔ CORRECT
@@ -47,7 +47,7 @@ import ServiceManagement
 // RULE 3: The jobList nav state MUST use fixedSize + maxHeight, NOT height
 //
 //   .fixedSize(horizontal: false, vertical: true) tells SwiftUI to use
-//   the view’s natural (ideal) vertical size rather than expanding to fill.
+//   the view's natural (ideal) vertical size rather than expanding to fill.
 //   Without it, the view expands to fill the available height (480pt)
 //   even when content is short => large empty space below content.
 //
@@ -62,14 +62,14 @@ import ServiceManagement
 // RULE 4: ALL child nav views MUST use maxWidth, NOT width
 //
 //   JobStepsView, MatrixGroupView, StepLogView all appear inside the
-//   root Group’s switch statement. They MUST use:
+//   root Group's switch statement. They MUST use:
 //     .frame(maxWidth: .infinity, minHeight: 480, maxHeight: 480)
 //
 //   They must NEVER use:
 //     .frame(width: 340, ...)  ← overrides ideal width => left jump
 //     .frame(width: 340, height: 480)  ← same problem
 //
-//   maxWidth: .infinity expands to fill the space that the parent Group’s
+//   maxWidth: .infinity expands to fill the space that the parent Group's
 //   idealWidth: 340 has established. This keeps the ideal width at 340
 //   across all navigation states.
 //
@@ -89,7 +89,7 @@ import ServiceManagement
 //          Width jumps on push/pop.
 //
 //   ✘ ZStack with .opacity or .transition
-//       => ZStack measures the MAX of all children’s sizes simultaneously.
+//       => ZStack measures the MAX of all children's sizes simultaneously.
 //          Even invisible children affect preferredContentSize.
 //
 //   ✘ ZStack with .transition(.move(edge: .leading))
@@ -104,7 +104,7 @@ import ServiceManagement
 //          inactive branches. Clean navigation with no transition artifacts.
 //
 // DO NOT add .transition() to any case in the switch statement.
-// Transitions change the view’s reported size during the animation.
+// Transitions change the view's reported size during the animation.
 // Even .transition(.identity) can affect the layout pass timing.
 //
 // ============================================================
@@ -134,6 +134,11 @@ import ServiceManagement
 // Symptom F — Popover jumps left only on the very first open:
 //   Caused by: popoverIsOpen set after reload() in togglePopover.
 //   See AppDelegate.swift CAUSE 4.
+//
+// Symptom G — Popover jumps left on second open (first open was fine):
+//   Caused by: reload() firing objectWillChange 3x due to redundant
+//   explicit .send() on top of 2x @Published auto-publishes.
+//   See AppDelegate.swift CAUSE 5 and RunnerStoreObservable.reload() below.
 //
 // ============================================================
 
@@ -243,9 +248,9 @@ struct PopoverView: View {
     private var jobListView: some View {
         VStack(alignment: .leading, spacing: 0) {
 
-            // Header — RunnerBar v1.7
+            // Header — RunnerBar v1.8
             HStack {
-                Text("RunnerBar v1.7")
+                Text("RunnerBar v1.8")
                     .font(.headline)
                     .foregroundColor(.secondary)
                 Spacer()
@@ -536,26 +541,82 @@ struct PopoverView: View {
 
 // MARK: - Observable
 
-// ⚠️ reload() calls objectWillChange.send().
-// This is intentional — it forces an immediate SwiftUI re-render.
-// It is also DANGEROUS if called at the wrong time (see AppDelegate.swift).
-// Only call reload() from:
-//   - togglePopover (after setting popoverIsOpen = true)
-//   - onChange handler (only when !popoverIsOpen)
-//   - submitScope / scope removal (user-triggered, acceptable)
-// NEVER call reload() from popoverDidClose. See AppDelegate CAUSE 3.
+// ============================================================
+// ⚠️⚠️⚠️  RunnerStoreObservable.reload() — READ BEFORE TOUCHING  ⚠️⚠️⚠️
+// ============================================================
+// CAUSE 5 — Triple objectWillChange publish from reload()
+//
+// The original reload() looked like this:
+//   func reload() {
+//       runners = RunnerStore.shared.runners  // ← @Published fires (1)
+//       jobs    = RunnerStore.shared.jobs     // ← @Published fires (2)
+//       objectWillChange.send()               // ← EXPLICIT fires (3) ← BUG
+//   }
+//
+// This fired objectWillChange THREE times per reload() call.
+// Three publishes = three SwiftUI re-renders queued on the runloop.
+//
+// Why this breaks even with popoverIsOpen = true set before reload():
+//   - The Cause 4 fix arms the onChange guard so the poll can't call
+//     reload() while open. But it does NOT prevent the three re-renders
+//     queued by the pre-open reload() in togglePopover from firing
+//     after show(). All three race against show().
+//   - The first re-render sees "0 jobs" (stale state).
+//   - The second/third re-render sees "1 job" (updated state).
+//   - Layout for "0 jobs" and "1 job" are different heights.
+//   - Each re-render changes preferredContentSize.
+//   - NSPopover re-anchors on each change => left jump.
+//
+// THE FIX (v1.8):
+//   - REMOVED the explicit objectWillChange.send().
+//     @Published properties already call objectWillChange before each
+//     assignment automatically. The explicit .send() was ALWAYS redundant.
+//     It served no purpose except to add a third publish and cause CAUSE 5.
+//
+//   - WRAPPED both assignments in withAnimation(nil) { }.
+//     This is a hint to SwiftUI to coalesce the two @Published assignments
+//     into a single layout pass where possible, reducing from 2 re-renders
+//     to 1. Note: SwiftUI does NOT guarantee perfect coalescing in all
+//     cases, but withAnimation(nil) is the standard tool for this.
+//
+// ⚠️ DO NOT re-add objectWillChange.send() here. Ever.
+//     @Published handles it. An extra .send() = an extra re-render =
+//     an extra preferredContentSize change = left jump.
+//
+// ⚠️ DO NOT call reload() from popoverDidClose. See AppDelegate CAUSE 3.
+// ⚠️ DO NOT call reload() from onChange when popoverIsOpen. See AppDelegate CAUSE 2.
+// ⚠️ ONLY call reload() from:
+//     - togglePopover (after popoverIsOpen = true has been set)
+//     - onChange handler (only when !popoverIsOpen)
+//     - submitScope / scope removal (user-triggered, acceptable)
+// ============================================================
 final class RunnerStoreObservable: ObservableObject {
     @Published var runners: [Runner] = []
     @Published var jobs: [ActiveJob] = []
 
     init() {
+        // ⚠️ init() is called once at app launch before any popover exists.
+        // Direct assignment here is fine — no objectWillChange listeners yet.
         runners = RunnerStore.shared.runners
         jobs    = RunnerStore.shared.jobs
     }
 
     func reload() {
-        runners = RunnerStore.shared.runners
-        jobs    = RunnerStore.shared.jobs
-        objectWillChange.send()
+        // ⚠️⚠️⚠️  DO NOT ADD objectWillChange.send() HERE.  ⚠️⚠️⚠️
+        // @Published fires objectWillChange automatically on assignment.
+        // An extra .send() causes a THIRD publish per reload() call,
+        // which queues an extra SwiftUI re-render, which changes
+        // preferredContentSize, which causes NSPopover to re-anchor => left jump.
+        // This was CAUSE 5 of the left-jump regression. Do not reintroduce it.
+        //
+        // withAnimation(nil) coalesces the two @Published assignments into
+        // a single layout pass (1 re-render instead of 2).
+        // DO NOT remove withAnimation(nil) — without it, two separate
+        // re-renders fire (one for runners, one for jobs), each of which
+        // may calculate a different preferredContentSize => re-anchor.
+        withAnimation(nil) {
+            runners = RunnerStore.shared.runners
+            jobs    = RunnerStore.shared.jobs
+        }
     }
 }
