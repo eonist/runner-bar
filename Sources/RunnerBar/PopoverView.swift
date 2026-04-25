@@ -43,13 +43,21 @@ struct PopoverView: View {
 
             Divider()
 
-            // ── Runner list ────────────────────────────────────────
+            // ── Local runners ──────────────────────────────────
+            Text("Local runners")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+                .padding(.bottom, 2)
+
             if store.runners.isEmpty {
                 Text(isAuthenticated ? "No runners found" : "Authenticate to see runners")
                     .foregroundColor(.secondary)
                     .font(.caption)
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 4)
+                    .padding(.bottom, 2)
             } else {
                 ForEach(store.runners, id: \.id) { runner in
                     HStack(spacing: 8) {
@@ -71,7 +79,7 @@ struct PopoverView: View {
                 }
             }
 
-            // ── Active Jobs ────────────────────────────────────────
+            // ── Active Jobs ──────────────────────────────────
             Divider()
 
             Text("Active Jobs")
@@ -122,7 +130,7 @@ struct PopoverView: View {
 
             Divider()
 
-            // ── Scope management ──────────────────────────────────
+            // ── Scope management ────────────────────────────
             VStack(alignment: .leading, spacing: 4) {
                 Text("Scopes")
                     .font(.caption)
@@ -164,7 +172,7 @@ struct PopoverView: View {
 
             Divider()
 
-            // ── Launch at login ──────────────────────────────────
+            // ── Launch at login ────────────────────────────
             Toggle(isOn: $launchAtLogin) {
                 Text("Launch at login").font(.system(size: 13))
             }
@@ -175,7 +183,7 @@ struct PopoverView: View {
 
             Divider()
 
-            // ── Quit ───────────────────────────────────────────────
+            // ── Quit ────────────────────────────────────────
             Button(action: { NSApplication.shared.terminate(nil) }) {
                 HStack {
                     Image(systemName: "xmark.square")
