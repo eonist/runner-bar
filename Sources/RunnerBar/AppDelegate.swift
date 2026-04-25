@@ -8,7 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hc: NSHostingController<AnyView>?
     private let observable = RunnerStoreObservable()
 
-    private static let width: CGFloat = 320
+    private static let width: CGFloat        = 320
     private static let mainHeight: CGFloat   = 360
     private static let detailHeight: CGFloat = 460
 
@@ -43,33 +43,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func mainView() -> AnyView {
         AnyView(PopoverMainView(store: observable, onSelectJob: { [weak self] job in
-            self?.showDetail(job: job)
+            self?.navigate(to: self?.detailView(job: job), height: Self.detailHeight)
         }))
     }
 
     private func detailView(job: ActiveJob) -> AnyView {
         AnyView(JobDetailView(job: job, onBack: { [weak self] in
-            self?.showMain()
+            self?.navigate(to: self?.mainView(), height: Self.mainHeight)
         }))
     }
 
-    private func showDetail(job: ActiveJob) {
-        swap(to: detailView(job: job), height: Self.detailHeight)
-    }
-
-    private func showMain() {
-        swap(to: mainView(), height: Self.mainHeight)
-    }
-
-    private func swap(to view: AnyView, height: CGFloat) {
-        guard let popover, let hc else { return }
-        popover.performClose(nil)
-        hc.rootView = view
-        // Only height changes — width is always 320
+    /// Swap content and resize the popover WITHOUT closing it.
+    /// NSPopover keeps its anchor fixed — no left-jump ever.
+    private func navigate(to view: AnyView?, height: CGFloat) {
+        guard let view, let popover, let hc else { return }
         let newSize = NSSize(width: Self.width, height: height)
-        popover.contentSize = newSize
+        // 1. Swap SwiftUI content
+        hc.rootView = view
+        // 2. Resize hosting view
         hc.view.setFrameSize(newSize)
-        DispatchQueue.main.async { [weak self] in self?.openPopover() }
+        // 3. Update popover contentSize in-place (no close/reopen)
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0
+            popover.contentSize = newSize
+        }
     }
 
     @objc private func togglePopover() {
