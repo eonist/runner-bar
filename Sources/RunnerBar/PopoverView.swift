@@ -30,30 +30,27 @@ struct PopoverView: View {
     @State private var navState: NavState = .jobList
 
     var body: some View {
-        ZStack {
-            if case .jobList = navState {
+        Group {
+            switch navState {
+            case .jobList:
                 jobListView
-                    .transition(.move(edge: .leading))
-            }
-            if case .jobSteps(let job, let scope) = navState {
+            case .jobSteps(let job, let scope):
                 JobStepsView(
                     job: job,
                     scope: scope,
-                    onBack: { withAnimation(.easeInOut(duration: 0.25)) { navState = .jobList } }
+                    onBack: { navState = .jobList }
                 )
-                .transition(.move(edge: .trailing))
-            }
-            if case .matrixGroup(let baseName, let jobs, let scope) = navState {
+            case .matrixGroup(let baseName, let jobs, let scope):
                 MatrixGroupView(
                     baseName: baseName,
                     jobs: jobs,
                     scope: scope,
-                    onBack: { withAnimation(.easeInOut(duration: 0.25)) { navState = .jobList } }
+                    onBack: { navState = .jobList }
                 )
-                .transition(.move(edge: .trailing))
             }
         }
-        .animation(.easeInOut(duration: 0.25), value: navState)
+        .frame(minWidth: 320)
+        .fixedSize(horizontal: false, vertical: true)
         .onReceive(store.objectWillChange) {
             isAuthenticated = (githubToken() != nil)
         }
@@ -227,8 +224,6 @@ struct PopoverView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
         }
-        .frame(minWidth: 320)
-        .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: - Group row builder
@@ -238,13 +233,11 @@ struct PopoverView: View {
         let jobScope = ScopeStore.shared.scopes.first ?? ""
 
         Button(action: {
-            withAnimation(.easeInOut(duration: 0.25)) {
-                switch group {
-                case .single(let job):
-                    navState = .jobSteps(job: job, scope: jobScope)
-                case .matrix(let baseName, let jobs):
-                    navState = .matrixGroup(baseName: baseName, jobs: jobs, scope: jobScope)
-                }
+            switch group {
+            case .single(let job):
+                navState = .jobSteps(job: job, scope: jobScope)
+            case .matrix(let baseName, let jobs):
+                navState = .matrixGroup(baseName: baseName, jobs: jobs, scope: jobScope)
             }
         }) {
             HStack(spacing: 8) {
