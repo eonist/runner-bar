@@ -1,47 +1,44 @@
 import AppKit
 import SwiftUI
 
-// ⚠️ REGRESSION GUARD — READ BEFORE TOUCHING (ref #52 #54 #57)
+// ⚠️ REGRESSION GUARD — frame rules (ref #52 #54 #57)
 //
-// ── WHY EVERY PREVIOUS ATTEMPT FAILED (v0.22–v0.28) ──────────────────────
-//   AppDelegate.openPopover() reads fittingSize of hc.rootView ONCE, while
-//   the popover is CLOSED. At that moment rootView is ALWAYS mainView().
-//   It is NEVER JobDetailView at open time.
-//   So fittingSize always reflects mainView height (~260-320px).
-//   navigate() then swaps to JobDetailView inside that fixed frame.
-//   If JobDetailView has 15 steps (~500px of content), it overflows the
-//   ~300px frame and SwiftUI centres it — that is the centering bug.
+// ── ARCHITECTURE ──────────────────────────────────────────────────────────────
+//   AppDelegate opens the popover at fittingSize of mainView() — ALWAYS.
+//   navigate() swaps hc.rootView with ZERO size changes (popover is open).
+//   JobDetailView receives whatever frame mainView() sized the popover to.
+//   That frame may be smaller than all steps combined.
 //
-//   Every attempted fix tried to make the frame taller:
-//     a) resize in navigate()          — FORBIDDEN: popover open = left-jump (#52 #54)
-//     b) resize in onChange            — FORBIDDEN: popover may be open = left-jump
-//     c) preferredContentSize          — FORBIDDEN: re-anchors on every rootView swap
-//     d) max(mainHeight, detailHeight) — breaks main view (too tall, empty space)
-//     e) idealWidth tricks             — fittingSize is read from mainView, not here
-//   All four re-introduced either the left-jump or a broken main view.
+// ── WHY v0.22–v0.28 ALL HAD THE CENTERING BUG ────────────────────────────────
+//   Every attempt tried to make the frame taller to fit the steps.
+//   That requires either:
+//     a) Resizing in navigate() — FORBIDDEN (popover open = left-jump)
+//     b) Resizing in onChange  — FORBIDDEN (popover may be open = left-jump)
+//     c) preferredContentSize  — FORBIDDEN (re-anchors on every rootView swap)
+//     d) Hard-coded large height — breaks main view height
+//   All four introduce regressions.
 //
-// ── THE CORRECT FIX (v0.29) ──────────────────────────────────────────────
+// ── THE CORRECT FIX (v0.29+) ─────────────────────────────────────────────────
 //   Don't fight the frame — work within it.
 //   Header (back button + job name) stays fixed at the top, always visible.
 //   Steps list is wrapped in a ScrollView — scrolls within the available frame.
 //   The view ALWAYS fits whatever frame AppDelegate gives it, regardless of
 //   step count. Zero changes to AppDelegate, navigate(), onChange, sizingOptions.
 //
-// ── RULES ────────────────────────────────────────────────────────────────
+// ── RULES ─────────────────────────────────────────────────────────────────────
 //   ✔ Steps list MUST stay inside ScrollView — may be taller than available frame
 //   ✔ Header (HStack + Text + Divider) MUST stay outside ScrollView — always visible
 //   ✔ Root: .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-//   ❌ NEVER put header inside ScrollView — back button becomes inaccessible if clipped
+//   ❌ NEVER put header inside ScrollView — back button becomes inaccessible
 //   ❌ NEVER remove ScrollView — centering bug returns for jobs with many steps
-//   ❌ NEVER add idealWidth to root frame — only meaningful under preferredContentSize,
-//        which is FORBIDDEN (#52 #54). idealWidth here has zero effect on the current
-//        fittingSize architecture (fittingSize is read from mainView(), not here).
+//   ❌ NEVER add idealWidth to root — only meaningful under preferredContentSize (FORBIDDEN)
 //   ❌ NEVER add .frame(height:) to root — fights AppDelegate's fixed frame
-//   ❌ NEVER add .fixedSize() to root — collapses view, breaks layout
+//   ❌ NEVER add .fixedSize() to root — collapses view
 //   ❌ NEVER resize in navigate() — popover is open = left-jump (#52 #54)
 struct JobDetailView: View {
     let job: ActiveJob
     let onBack: () -> Void
+    // Called when user taps a step row — navigates to StepLogView
     let onSelectStep: (JobStep) -> Void
     @State private var tick = 0
 
@@ -79,8 +76,8 @@ struct JobDetailView: View {
 
             // ── Steps: INSIDE ScrollView
             // ⚠️ ScrollView is REQUIRED. See regression guard above.
-            // The frame height is fixed by AppDelegate at mainView() fittingSize.
-            // navigate() cannot resize (left-jump rule). ScrollView absorbs overflow.
+            // Tapping a step calls onSelectStep(step) → AppDelegate.navigate() to StepLogView.
+            // ⚠️ DO NOT use NSWorkspace.open() here — spec requires in-app log view.
             ScrollView(.vertical, showsIndicators: true) {
                 VStack(alignment: .leading, spacing: 0) {
                     if job.steps.isEmpty {
@@ -107,6 +104,7 @@ struct JobDetailView: View {
                                         .font(.caption.monospacedDigit())
                                         .foregroundColor(.secondary)
                                         .frame(width: 40, alignment: .trailing)
+                                    // Chevron indicates drill-down to log view
                                     Image(systemName: "chevron.right")
                                         .font(.caption2)
                                         .foregroundColor(.secondary)
@@ -122,10 +120,9 @@ struct JobDetailView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        // ⚠️ Fill the fixed frame AppDelegate provides. Pin to top.
-        // maxHeight: .infinity is correct here — the ScrollView above
-        // ensures content never overflows regardless of step count.
-        // ❌ NEVER add idealWidth — fittingSize is read from mainView(), not here
+        // ⚠️ Fill AppDelegate's fixed frame. Pin to top.
+        // ScrollView ensures steps never overflow regardless of count.
+        // ❌ NEVER add idealWidth — not meaningful in current fittingSize architecture
         // ❌ NEVER add .frame(height:) — fights AppDelegate's fixed frame
         // ❌ NEVER add .fixedSize() — collapses the view
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
