@@ -3,7 +3,7 @@ import SwiftUI
 // ============================================================
 // ⚠️⚠️⚠️  STOP. READ THIS ENTIRE COMMENT BEFORE TOUCHING THIS FILE.  ⚠️⚠️⚠️
 // ============================================================
-// VERSION: v2.0 (keep in sync with AppDelegate.swift)
+// VERSION: v2.1 (keep in sync with AppDelegate.swift)
 //
 // This view is rendered inside PopoverView's root Group as the
 // .jobSteps navigation state. It exists inside an NSPopover whose
@@ -94,6 +94,24 @@ import SwiftUI
 //      and no size artifacts.
 //
 // ============================================================
+// ROW ALIGNMENT CONTRACT (v2.1)
+// ============================================================
+//
+// Every step row uses these fixed-width columns so that all rows line up
+// regardless of content:
+//
+//   [dot: 16pt] [name: flexible] [status: 76pt] [elapsed: 40pt] [chevron: 9pt]
+//
+// The dot column is 16pt wide (not 7pt) to accommodate the ProgressView
+// spinner used in MatrixGroupView. Using 7pt caused the spinner row to
+// be taller than other rows, shifting the HStack baselines.
+//
+// ⚠️ DO NOT change the dot container from .frame(width: 16, height: 16)
+//    back to .frame(width: 7, height: 7). The Circle inside is still 7pt
+//    but the container is 16pt so the row height is consistent.
+// ⚠️ DO NOT change the status column width from 76pt.
+// ⚠️ DO NOT change the elapsed column width from 40pt.
+// ============================================================
 
 struct JobStepsView: View {
     let job: ActiveJob
@@ -169,49 +187,7 @@ struct JobStepsView: View {
                         .padding(.vertical, 8)
                 } else {
                     ForEach(steps) { step in
-                        let tappable = step.status == "completed"
-                        Button(action: {
-                            guard tappable else { return }
-                            selectedStep = step
-                        }) {
-                            HStack(spacing: 8) {
-                                stepDot(for: step)
-
-                                Text(step.name)
-                                    .font(.system(size: 12))
-                                    .foregroundColor(step.isDimmed ? .secondary : .primary)
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-
-                                Spacer()
-
-                                if step.status == "completed" {
-                                    Text(conclusionLabel(for: step))
-                                        .font(.caption)
-                                        .foregroundColor(conclusionColor(for: step))
-                                        .frame(width: 76, alignment: .trailing)
-                                } else {
-                                    Text(statusLabel(for: step))
-                                        .font(.caption)
-                                        .foregroundColor(statusColor(for: step))
-                                        .frame(width: 76, alignment: .trailing)
-                                }
-
-                                Text(liveElapsed(for: step))
-                                    .font(.caption.monospacedDigit())
-                                    .foregroundColor(.secondary)
-                                    .frame(width: 40, alignment: .trailing)
-
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 9))
-                                    .foregroundColor(tappable ? .secondary.opacity(0.5) : .clear)
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 3)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .opacity(step.isDimmed ? 0.6 : 1.0)
+                        stepRow(for: step)
                     }
                     .padding(.bottom, 6)
                 }
@@ -227,9 +203,78 @@ struct JobStepsView: View {
         }
     }
 
+    // MARK: - Step row
+    //
+    // ⚠️ ROW ALIGNMENT CONTRACT: see file header for column widths.
+    // All rows use identical column widths so they line up perfectly.
+    // DO NOT change column widths without updating the contract comment above.
+
+    @ViewBuilder
+    private func stepRow(for step: JobStep) -> some View {
+        let tappable = step.status == "completed"
+        Button(action: {
+            guard tappable else { return }
+            selectedStep = step
+        }) {
+            // ⚠️ HStack alignment: .center keeps all columns on the same baseline.
+            // DO NOT change to .top or .bottom — the fixed-height dot column
+            // (16pt container) needs .center to sit at mid-row.
+            HStack(alignment: .center, spacing: 8) {
+
+                // Dot column: fixed 16pt container, 7pt circle inside.
+                // Fixed container width ensures all rows have identical
+                // leading indent regardless of content (dot vs spinner).
+                // ⚠️ DO NOT reduce this container to 7pt. See ROW ALIGNMENT CONTRACT.
+                stepDot(for: step)
+                    .frame(width: 16, height: 16)
+
+                Text(step.name)
+                    .font(.system(size: 12))
+                    .foregroundColor(step.isDimmed ? .secondary : .primary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                Spacer()
+
+                // Status/conclusion column: fixed 76pt, right-aligned.
+                if step.status == "completed" {
+                    Text(conclusionLabel(for: step))
+                        .font(.caption)
+                        .foregroundColor(conclusionColor(for: step))
+                        .frame(width: 76, alignment: .trailing)
+                } else {
+                    Text(statusLabel(for: step))
+                        .font(.caption)
+                        .foregroundColor(statusColor(for: step))
+                        .frame(width: 76, alignment: .trailing)
+                }
+
+                // Elapsed column: fixed 40pt, right-aligned, monospaced digits.
+                Text(liveElapsed(for: step))
+                    .font(.caption.monospacedDigit())
+                    .foregroundColor(.secondary)
+                    .frame(width: 40, alignment: .trailing)
+
+                // Chevron: invisible (not .hidden) when not tappable
+                // so the column width is always reserved.
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9))
+                    .foregroundColor(tappable ? .secondary.opacity(0.5) : .clear)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 3)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .opacity(step.isDimmed ? 0.6 : 1.0)
+    }
+
     // MARK: - Helpers
     private func liveElapsed(for step: JobStep) -> String { _ = tick; return step.elapsed }
 
+    // ⚠️ stepDot returns a 7pt circle. The caller wraps it in .frame(width:16, height:16).
+    // DO NOT put the 16pt frame inside here — MatrixGroupView reuses this
+    // pattern with its own container.
     @ViewBuilder
     private func stepDot(for step: JobStep) -> some View {
         Circle().fill(dotColor(for: step)).frame(width: 7, height: 7)
