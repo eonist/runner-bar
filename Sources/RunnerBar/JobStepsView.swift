@@ -3,9 +3,9 @@ import SwiftUI
 // ============================================================
 // ⚠️⚠️⚠️  STOP. READ THIS ENTIRE COMMENT BEFORE TOUCHING THIS FILE.  ⚠️⚠️⚠️
 // ============================================================
-// VERSION: v1.7
+// VERSION: v2.0 (keep in sync with AppDelegate.swift)
 //
-// This view is rendered inside PopoverView’s root Group as the
+// This view is rendered inside PopoverView's root Group as the
 // .jobSteps navigation state. It exists inside an NSPopover whose
 // sizing is extremely fragile. Read PopoverView.swift SECTION 1
 // and AppDelegate.swift SECTION 1 before making any changes.
@@ -18,33 +18,63 @@ import SwiftUI
 //   .frame(maxWidth: .infinity, minHeight: 480, maxHeight: 480)
 //
 // WHY maxWidth: .infinity and NOT width: 340:
-//   PopoverView’s root Group has .frame(idealWidth: 340).
+//   PopoverView's root Group has .frame(idealWidth: 340).
 //   NSHostingController reads the SwiftUI ideal size to set
 //   preferredContentSize. .frame(idealWidth: 340) on the root
 //   Group establishes 340pt as the ideal width for the entire tree.
 //
 //   If THIS view uses .frame(width: 340), it sets a LAYOUT constraint
-//   of 340pt. This fights the parent’s idealWidth:340 and causes the
+//   of 340pt. This fights the parent's idealWidth:340 and causes the
 //   ideal width to be reported inconsistently across navigation states.
 //   The result: preferredContentSize.width changes when navigating
 //   to/from this view => NSPopover re-anchors its full screen position
 //   => popover jumps to the far left of the screen.
 //
 //   .frame(maxWidth: .infinity) expands to fill the space established
-//   by the parent’s idealWidth constraint without fighting it.
+//   by the parent's idealWidth constraint without fighting it.
 //   This keeps ideal width = 340 at all times.
 //
 // WHY minHeight: 480, maxHeight: 480:
 //   Pins the height to exactly 480pt for this navigation state.
-//   This matches the maxHeight:480 cap on the jobList state,
-//   so the popover height stays constant across navigation.
-//   DO NOT remove minHeight — without it, short step lists would
-//   shrink the popover height, causing a re-anchor => left jump.
+//   This matches the maxHeight:480 cap on the jobList state.
+//   DO NOT remove minHeight — without it, short step lists shrink
+//   the popover height, causing a re-anchor => left jump.
 //
 // ✘ DO NOT change to: .frame(width: 340, height: 480)
 // ✘ DO NOT change to: .frame(width: 340, minHeight: 480, maxHeight: 480)
 // ✘ DO NOT change to: .frame(maxWidth: 340, ...)
 // ✔ KEEP AS:          .frame(maxWidth: .infinity, minHeight: 480, maxHeight: 480)
+//
+// ============================================================
+// CAUSE 7 — WHY THIS VIEW NO LONGER LOADS DATA ITSELF
+// ============================================================
+//
+// In v1.7-v1.9, this view called loadSteps() in .onAppear, which
+// fired a background fetch and landed the result ~2 seconds later via:
+//   steps = result      => @State change
+//   isLoading = false   => @State change
+//
+// These @State changes triggered SwiftUI re-renders WHILE the popover
+// was open. Even though the outer frame is fixed at 480pt, the content
+// change (spinner => step list) caused SwiftUI to recalculate the
+// ideal size, which NSHostingController picked up via preferredContentSize,
+// which caused NSPopover to re-anchor => left jump 2 seconds after opening.
+//
+// THE FIX (v2.0):
+//   Steps are now fetched in PopoverView.groupRow BEFORE navigating.
+//   The navState is set to .jobSteps(job:steps:scope:) only AFTER the
+//   fetch completes. This view receives steps as an init parameter and
+//   renders immediately without any async loading.
+//
+//   NO async load in this view = NO @State changes after appear
+//   = NO re-renders after appear = NO preferredContentSize change
+//   = NO left jump.
+//
+// ⚠️ DO NOT re-add loadSteps() or any async data loading to this view.
+// ⚠️ DO NOT add isLoading @State here. Steps must arrive pre-loaded.
+// ⚠️ If you need to refresh steps while the view is displayed, use a
+//    Timer that only updates TEXT (elapsed times), not the steps array.
+//    Changing the steps array = @State change = re-render = possible jump.
 //
 // ============================================================
 // NAVIGATION CONTRACT FOR THIS VIEW
@@ -61,18 +91,19 @@ import SwiftUI
 //
 //   ✔ USE Group + if/else (current approach)
 //      Group with plain if/else swaps content in-place with no transitions
-//      and no size artifacts. The outer .frame(maxWidth:.infinity,...) on
-//      the Group’s body keeps size stable regardless of which branch is shown.
+//      and no size artifacts.
 //
 // ============================================================
 
 struct JobStepsView: View {
     let job: ActiveJob
+    // ⚠️ steps is passed in PRE-LOADED from PopoverView.groupRow.
+    // DO NOT make this @State. DO NOT fetch inside this view.
+    // See CAUSE 7 comment above.
+    let steps: [JobStep]
     let scope: String
     let onBack: () -> Void
 
-    @State private var steps: [JobStep] = []
-    @State private var isLoading = true
     @State private var tick = 0
     @State private var selectedStep: JobStep? = nil
 
@@ -130,13 +161,7 @@ struct JobStepsView: View {
 
                 Divider()
 
-                if isLoading {
-                    HStack {
-                        Spacer()
-                        ProgressView().padding(.vertical, 16)
-                        Spacer()
-                    }
-                } else if steps.isEmpty {
+                if steps.isEmpty {
                     Text("No steps found")
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -193,22 +218,12 @@ struct JobStepsView: View {
 
             } // end VStack
         } // end ScrollView
-        .onAppear { loadSteps() }
         .onAppear {
+            // ⚠️ tick drives liveElapsed() label updates only.
+            // It does NOT change the steps array or any structural content.
+            // Text label updates do NOT change the view's ideal size.
+            // It is safe to tick while the popover is open.
             Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in tick += 1 }
-        }
-    }
-
-    // MARK: - Data
-
-    private func loadSteps() {
-        isLoading = true
-        DispatchQueue.global(qos: .userInitiated).async {
-            let result = fetchJobSteps(jobID: job.id, scope: scope)
-            DispatchQueue.main.async {
-                steps = result
-                isLoading = false
-            }
         }
     }
 

@@ -5,12 +5,12 @@ import ServiceManagement
 // ============================================================
 // ⚠️⚠️⚠️  STOP. READ THIS ENTIRE COMMENT BEFORE TOUCHING THIS FILE.  ⚠️⚠️⚠️
 // ============================================================
-// VERSION: v1.9 (keep in sync with AppDelegate.swift)
+// VERSION: v2.0 (keep in sync with AppDelegate.swift)
 //
 // This file defines the root SwiftUI view inside an NSPopover.
 // The sizing relationship between SwiftUI and NSPopover is extremely
 // fragile. The left-jump bug was introduced and re-introduced 30+
-// times in a single day before all 6 root causes were identified.
+// times in a single day before all 7 root causes were identified.
 //
 // READ AppDelegate.swift SECTION 1 for the full explanation of WHY
 // NSPopover behaves this way. This comment covers the SwiftUI side.
@@ -124,9 +124,8 @@ import ServiceManagement
 //   See AppDelegate.swift CAUSE 2.
 //
 // Symptom D — Popover opens and immediately closes on every click:
-//   Caused by: objectWillChange publish pending at the moment show() runs.
-//   Either reload() in popoverDidClose (CAUSE 3), or onChange-triggered
-//   reload racing with togglePopover (CAUSE 6), or show() not deferred.
+//   Caused by: objectWillChange pending at moment of show().
+//   See AppDelegate.swift CAUSE 3 and CAUSE 6.
 //
 // Symptom E — Large empty space below content when no jobs are running:
 //   Caused by: .frame(height:480) instead of .fixedSize+.frame(maxHeight:480).
@@ -136,28 +135,32 @@ import ServiceManagement
 //   Caused by: popoverIsOpen set after reload() in togglePopover.
 //   See AppDelegate.swift CAUSE 4.
 //
-// Symptom G — Popover jumps left on second open (first open was fine):
-//   Previously caused by CAUSE 5 (triple publish). Fixed in v1.8.
-//   If this recurs, check that reload() has exactly ONE @Published
-//   assignment (the StoreState struct) and no extra .send() calls.
+// Symptom G — Popover jumps ~2 seconds after navigating to steps view:
+//   Caused by: loadSteps() async result landing after JobStepsView appears.
+//   The @State change (isLoading=false, steps=result) re-renders the view.
+//   See AppDelegate.swift CAUSE 7 and JobStepsView.swift CAUSE 7 section.
+//   Fix: steps are now pre-loaded in groupRow before navigation.
 //
 // ============================================================
 
 // MARK: - Navigation state
 
 // ⚠️ This enum drives ALL navigation in the popover.
-// Do NOT add associated values that contain large data structures —
-// NavState.== must remain cheap. Do NOT add more cases without reading
-// SECTION 2 of this file about navigation constraints.
+// NavState now carries pre-loaded steps in .jobSteps to prevent CAUSE 7.
+// Do NOT add associated values that contain large data structures.
+// Do NOT add more cases without reading SECTION 2.
 private enum NavState: Equatable {
     case jobList
-    case jobSteps(job: ActiveJob, scope: String)
+    // ⚠️ steps: [JobStep] is pre-loaded BEFORE this state is set.
+    // This prevents JobStepsView from doing async loading after appear.
+    // See CAUSE 7 in AppDelegate.swift and JobStepsView.swift.
+    case jobSteps(job: ActiveJob, steps: [JobStep], scope: String)
     case matrixGroup(baseName: String, jobs: [ActiveJob], scope: String)
 
     static func == (lhs: NavState, rhs: NavState) -> Bool {
         switch (lhs, rhs) {
         case (.jobList, .jobList): return true
-        case (.jobSteps(let a, _), .jobSteps(let b, _)): return a.id == b.id
+        case (.jobSteps(let a, _, _), .jobSteps(let b, _, _)): return a.id == b.id
         case (.matrixGroup(let a, _, _), .matrixGroup(let b, _, _)): return a == b
         default: return false
         }
@@ -194,12 +197,14 @@ struct PopoverView: View {
                     // See SECTION 1 RULE 3.
                     .frame(maxHeight: 480, alignment: .top)
 
-            case .jobSteps(let job, let scope):
+            case .jobSteps(let job, let steps, let scope):
+                // ⚠️ steps are PRE-LOADED. JobStepsView renders immediately.
                 // JobStepsView applies its own .frame(maxWidth:.infinity, ...)
                 // on its body. Do NOT add .frame(width:340) here.
-                // See SECTION 1 RULE 4.
+                // See SECTION 1 RULE 4 and CAUSE 7.
                 JobStepsView(
                     job: job,
+                    steps: steps,
                     scope: scope,
                     onBack: { navState = .jobList }
                 )
@@ -233,10 +238,8 @@ struct PopoverView: View {
         // DO NOT REMOVE THIS MODIFIER.
         .frame(idealWidth: 340)
         .onReceive(store.objectWillChange) {
-            // ⚠️ store.objectWillChange now fires exactly ONCE per reload()
-            // because StoreState is a single @Published property.
-            // Previously runners + jobs were two @Published properties =>
-            // two fires per reload() => two githubToken() calls => two re-renders.
+            // ⚠️ This fires exactly ONCE per reload() because StoreState is
+            // a single @Published property. See RunnerStoreObservable below.
             isAuthenticated = (githubToken() != nil)
         }
         .onAppear {
@@ -253,9 +256,9 @@ struct PopoverView: View {
     private var jobListView: some View {
         VStack(alignment: .leading, spacing: 0) {
 
-            // Header — RunnerBar v1.9
+            // Header — RunnerBar v2.0
             HStack {
-                Text("RunnerBar v1.9")
+                Text("RunnerBar v2.0")
                     .font(.headline)
                     .foregroundColor(.secondary)
                 Spacer()
@@ -291,8 +294,6 @@ struct PopoverView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 2)
 
-            // ⚠️ store.state.jobs — access via the single StoreState struct.
-            // Do NOT use store.jobs or store.runners directly; they no longer exist.
             if store.state.jobs.isEmpty {
                 Text("No active jobs")
                     .font(.caption)
@@ -418,6 +419,31 @@ struct PopoverView: View {
     }
 
     // MARK: - Group row builder
+    //
+    // ⚠️⚠️⚠️  PRE-LOADING STEPS HERE IS REQUIRED TO PREVENT CAUSE 7.  ⚠️⚠️⚠️
+    //
+    // When the user taps a job row, we DO NOT immediately navigate to .jobSteps.
+    // Instead, we fetch the steps first on a background thread, THEN navigate.
+    //
+    // WHY:
+    //   If we navigate first and load steps inside JobStepsView.onAppear,
+    //   the async result arrives ~2 seconds later, changing @State (isLoading,
+    //   steps). That @State change fires a SwiftUI re-render while the popover
+    //   is open. The re-render recalculates preferredContentSize. NSPopover
+    //   re-anchors. Left jump.
+    //
+    // HOW:
+    //   1. User taps row => loadStepsAndNavigate() called
+    //   2. Popover is still showing jobListView (no size change)
+    //   3. Background fetch completes (takes ~0.5-2 seconds)
+    //   4. navState = .jobSteps(job:steps:scope:) set on main queue
+    //   5. JobStepsView appears with steps already populated
+    //   6. No async load in JobStepsView = no @State change after appear
+    //   7. No re-render = no preferredContentSize change = no jump
+    //
+    // ⚠️ DO NOT change this to navigate immediately and load inside JobStepsView.
+    // ⚠️ The brief delay while fetching is acceptable UX (typically <0.5s on LAN).
+    // ⚠️ If the fetch fails, steps will be [] and JobStepsView shows "No steps found".
 
     @ViewBuilder
     private func groupRow(for group: JobGroup) -> some View {
@@ -426,7 +452,7 @@ struct PopoverView: View {
         Button(action: {
             switch group {
             case .single(let job):
-                navState = .jobSteps(job: job, scope: jobScope)
+                loadStepsAndNavigate(job: job, scope: jobScope)
             case .matrix(let baseName, let jobs):
                 navState = .matrixGroup(baseName: baseName, jobs: jobs, scope: jobScope)
             }
@@ -468,6 +494,19 @@ struct PopoverView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    // ⚠️ CAUSE 7 FIX: Fetch steps BEFORE navigating.
+    // Background fetch => main queue navState update => JobStepsView appears with data.
+    // DO NOT inline this into the Button action as navigate-then-load.
+    // See groupRow comment above for full explanation.
+    private func loadStepsAndNavigate(job: ActiveJob, scope: String) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let steps = fetchJobSteps(jobID: job.id, scope: scope)
+            DispatchQueue.main.async {
+                navState = .jobSteps(job: job, steps: steps, scope: scope)
+            }
+        }
     }
 
     // MARK: - Elapsed
@@ -552,40 +591,16 @@ struct PopoverView: View {
 // ⚠️⚠️⚠️  RunnerStoreObservable — READ BEFORE TOUCHING  ⚠️⚠️⚠️
 // ============================================================
 // VERSION HISTORY:
-//   v1.7: runners + jobs as two separate @Published properties
-//   v1.8: removed explicit objectWillChange.send(), added withAnimation(nil)
-//         PROBLEM: withAnimation(nil) does NOT coalesce @Published (Combine)
-//         fires. Still 2x publishes per reload() because two @Published props.
-//   v1.9: Merged runners + jobs into ONE @Published StoreState struct.
-//         ONE property = ONE assignment = ONE Combine publish = ONE re-render.
-//         This is the correct and final fix for the multi-publish problem.
+//   v1.7: runners + jobs as two separate @Published properties => 2-3x publishes
+//   v1.8: removed explicit objectWillChange.send() => still 2x from @Published
+//   v1.9: Merged into ONE @Published StoreState struct => 1x publish per reload()
+//   v2.0: No changes to observable. StoreState fix from v1.9 is correct and final.
 //
-// WHY ONE @Published STRUCT INSTEAD OF TWO @Published PROPERTIES:
-//   @Published fires objectWillChange via the Combine pipeline, NOT via
-//   SwiftUI's animation/transaction system. withAnimation(nil) only batches
-//   @State changes inside a SwiftUI view body. It has NO effect on @Published
-//   Combine publishers. Two @Published properties = two separate Combine
-//   events per reload() = two SwiftUI re-renders = two preferredContentSize
-//   recalculations. Each recalculation can trigger NSPopover re-anchor.
-//
-// ⚠️ DO NOT split StoreState back into separate @Published properties.
-//    This was tried in v1.7 and caused CAUSE 5/5b. It looks cleaner.
-//    It is not. One struct = one publish = one render. Keep it.
-//
-// ⚠️ DO NOT add objectWillChange.send() after the state assignment.
-//    @Published fires it automatically. Extra .send() = extra re-render.
-//    This was CAUSE 5 in v1.7.
-//
-// ⚠️ ONLY call reload() from:
-//    - togglePopover (after popoverIsOpen = true, before show())
-//    - onChange handler (only when !popoverIsOpen)
-//    - submitScope / scope removal (user-triggered, acceptable)
-//    NEVER from popoverDidClose. See AppDelegate CAUSE 3.
+// ONE @Published property = ONE Combine publish per reload() = ONE SwiftUI re-render.
+// DO NOT split back into separate @Published properties.
+// DO NOT add objectWillChange.send() anywhere in this class.
 // ============================================================
 
-/// Snapshot of RunnerStore state for SwiftUI rendering.
-/// This is a VALUE TYPE (struct) — assignment is atomic from SwiftUI/Combine's
-/// perspective: one assignment triggers exactly one objectWillChange publish.
 struct StoreState {
     var runners: [Runner]   = []
     var jobs: [ActiveJob]   = []
@@ -598,8 +613,6 @@ final class RunnerStoreObservable: ObservableObject {
     @Published var state: StoreState = StoreState()
 
     init() {
-        // init() runs once at app launch before any Combine subscribers exist.
-        // Direct struct mutation here is equivalent to a single @Published fire.
         state = StoreState(
             runners: RunnerStore.shared.runners,
             jobs:    RunnerStore.shared.jobs
@@ -607,19 +620,10 @@ final class RunnerStoreObservable: ObservableObject {
     }
 
     func reload() {
-        // ⚠️⚠️⚠️  THIS ASSIGNMENT MUST REMAIN A SINGLE LINE / SINGLE VALUE.  ⚠️⚠️⚠️
-        //
-        // Assigning a new StoreState struct fires objectWillChange EXACTLY ONCE
-        // via @Published. This is atomic from Combine's perspective.
-        //
-        // HISTORY OF BUGS FROM SPLITTING THIS:
-        //   runners = ... (publish 1) + jobs = ... (publish 2) => 2 re-renders
-        //   runners = ... (pub 1) + jobs = ... (pub 2) + .send() (pub 3) => 3 re-renders
-        //   Each extra re-render = extra preferredContentSize change = left jump.
-        //
-        // DO NOT refactor this into two separate assignments.
-        // DO NOT add objectWillChange.send() after this.
-        // DO NOT add withAnimation(nil) { } around this — not needed, struct is atomic.
+        // ⚠️⚠️⚠️  SINGLE ASSIGNMENT. DO NOT SPLIT.  ⚠️⚠️⚠️
+        // One StoreState struct assignment = one @Published fire = one re-render.
+        // Splitting into two assignments = two publishes = two re-renders = left jump.
+        // DO NOT add objectWillChange.send() after this line.
         state = StoreState(
             runners: RunnerStore.shared.runners,
             jobs:    RunnerStore.shared.jobs
