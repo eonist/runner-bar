@@ -1,8 +1,34 @@
 import SwiftUI
 
-// MARK: - Matrix Group View (Phase 3)
+// MARK: - Matrix Group View
 // Shows the list of child jobs inside a matrix group.
-// Each child job taps into JobStepsView (Phase 1).
+// Each child job taps into JobStepsView.
+//
+// ============================================================
+// ⚠️  WARNING — POPOVER SIZING CONTRACT — READ BEFORE EDITING
+// ============================================================
+// This view is a nav state inside PopoverView's root Group.
+// The root Group has .frame(idealWidth: 340), which keeps
+// NSHostingController.preferredContentSize.width = 340 always.
+//
+// For that to work, THIS VIEW must ALSO report width = 340.
+// Rule: the outermost container must be .frame(width: 340, height: 480).
+//
+// THINGS THAT WILL CAUSE THE LEFT-JUMP REGRESSION:
+//   ✗ Removing .frame(width: 340, height: 480) from the outer Group
+//     => this view reports a different ideal width => left jump
+//   ✗ Using .frame(minWidth: 320) or .fixedSize on the outer container
+//     => dynamic width => preferredContentSize.width changes => left jump
+//   ✗ Using ZStack with .transition(.move(edge:))
+//     => ZStack collapses to zero-width in NSPopover context
+//     => move transition animates FROM the left edge of the screen
+//     => content appears flying in from far left
+//     => USE Group + if/else switch instead, no transitions
+//   ✗ Width != 340
+//     => must match PopoverView's idealWidth exactly
+//
+// See GitHub issue #53 before touching any of this.
+// ============================================================
 
 struct MatrixGroupView: View {
     let baseName: String
@@ -14,109 +40,108 @@ struct MatrixGroupView: View {
     @State private var tick = 0
 
     var body: some View {
-        ZStack {
-            // ── Variant list
-            if selectedJob == nil {
-                variantListView
-                    .transition(.move(edge: .leading))
-            }
-
-            // ── Job steps drill-down
+        // ⚠️ Group + if/else, NOT ZStack + .transition(.move)
+        // ZStack with move transitions causes content to animate from far left of screen.
+        // Group with plain if/else swaps content in-place with no anchor issues.
+        Group {
             if let job = selectedJob {
                 JobStepsView(
                     job: job,
                     scope: scope,
-                    onBack: {
-                        withAnimation(.easeInOut(duration: 0.25)) { selectedJob = nil }
-                    }
+                    onBack: { selectedJob = nil }
                 )
-                .transition(.move(edge: .trailing))
+            } else {
+                variantListView
             }
         }
-        .animation(.easeInOut(duration: 0.25), value: selectedJob?.id)
+        // ⚠️ MUST be .frame(width: 340, height: 480) — NOT minWidth, NOT fixedSize.
+        // This ensures preferredContentSize.width = 340 when this nav state is active.
+        // Width must match PopoverView's .frame(idealWidth: 340) exactly.
+        .frame(width: 340, height: 480)
     }
 
     // MARK: - Variant list
 
     private var variantListView: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        // ⚠️ No .fixedSize or .frame(minWidth:) here — the outer .frame(width:height:)
+        // already controls the size. Adding fixedSize/minWidth here would fight it.
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
 
-            // ── Header
-            HStack(spacing: 6) {
-                Button(action: onBack) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 12, weight: .semibold))
-                }
-                .buttonStyle(.plain)
-                .foregroundColor(.secondary)
-
-                Text(baseName)
-                    .font(.headline)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-
-                Spacer()
-
-                Text("\(jobs.count) variants")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            .padding(.horizontal, 12)
-            .padding(.top, 12)
-            .padding(.bottom, 8)
-
-            Divider()
-
-            // ── Variant rows
-            ForEach(jobs) { job in
-                Button(action: {
-                    withAnimation(.easeInOut(duration: 0.25)) { selectedJob = job }
-                }) {
-                    HStack(spacing: 8) {
-                        Circle()
-                            .fill(dotColor(for: job))
-                            .frame(width: 7, height: 7)
-
-                        Text(job.matrixVariant ?? job.name)
-                            .font(.system(size: 12))
-                            .foregroundColor(job.isDimmed ? .secondary : .primary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-
-                        Spacer()
-
-                        if job.isDimmed {
-                            Text(conclusionLabel(for: job))
-                                .font(.caption)
-                                .foregroundColor(conclusionColor(for: job))
-                                .frame(width: 76, alignment: .trailing)
-                        } else {
-                            Text(statusLabel(for: job))
-                                .font(.caption)
-                                .foregroundColor(statusColor(for: job))
-                                .frame(width: 76, alignment: .trailing)
-                        }
-
-                        Text(liveElapsed(for: job))
-                            .font(.caption.monospacedDigit())
-                            .foregroundColor(.secondary)
-                            .frame(width: 40, alignment: .trailing)
-
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 9))
-                            .foregroundColor(.secondary.opacity(0.5))
+                // ── Header
+                HStack(spacing: 6) {
+                    Button(action: onBack) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 12, weight: .semibold))
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 3)
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    .foregroundColor(.secondary)
+
+                    Text(baseName)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+
+                    Spacer()
+
+                    Text("\(jobs.count) variants")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
-                .buttonStyle(.plain)
-                .opacity(job.isDimmed ? 0.7 : 1.0)
-            }
-            .padding(.bottom, 6)
-        }
-        .frame(minWidth: 320)
-        .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
+
+                Divider()
+
+                // ── Variant rows
+                ForEach(jobs) { job in
+                    Button(action: { selectedJob = job }) {
+                        HStack(spacing: 8) {
+                            Circle()
+                                .fill(dotColor(for: job))
+                                .frame(width: 7, height: 7)
+
+                            Text(job.matrixVariant ?? job.name)
+                                .font(.system(size: 12))
+                                .foregroundColor(job.isDimmed ? .secondary : .primary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+
+                            Spacer()
+
+                            if job.isDimmed {
+                                Text(conclusionLabel(for: job))
+                                    .font(.caption)
+                                    .foregroundColor(conclusionColor(for: job))
+                                    .frame(width: 76, alignment: .trailing)
+                            } else {
+                                Text(statusLabel(for: job))
+                                    .font(.caption)
+                                    .foregroundColor(statusColor(for: job))
+                                    .frame(width: 76, alignment: .trailing)
+                            }
+
+                            Text(liveElapsed(for: job))
+                                .font(.caption.monospacedDigit())
+                                .foregroundColor(.secondary)
+                                .frame(width: 40, alignment: .trailing)
+
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 9))
+                                .foregroundColor(.secondary.opacity(0.5))
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 3)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .opacity(job.isDimmed ? 0.7 : 1.0)
+                }
+                .padding(.bottom, 6)
+
+            } // VStack
+        } // ScrollView
         .onAppear {
             Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in tick += 1 }
         }
