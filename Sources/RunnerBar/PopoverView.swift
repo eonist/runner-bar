@@ -70,7 +70,7 @@ struct PopoverView: View {
 
             // -- Header
             HStack {
-                Text("RunnerBar v1.0")
+                Text("RunnerBar v1.1")
                     .font(.headline)
                     .foregroundColor(.secondary)
                 Spacer()
