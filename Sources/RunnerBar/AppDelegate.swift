@@ -5,6 +5,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
+    private var hc: NSHostingController<PopoverView>?
     private let observable = RunnerStoreObservable()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -19,11 +20,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let hc = NSHostingController(rootView: PopoverView(store: observable))
         hc.sizingOptions = .preferredContentSize
+        self.hc = hc
 
         let popover = NSPopover()
-        popover.behavior    = .transient
-        popover.animates    = false
-        popover.contentViewController = hc
+        popover.behavior               = .transient
+        popover.animates               = false
+        popover.contentViewController  = hc
         self.popover = popover
 
         RunnerStore.shared.onChange = { [weak self] in
@@ -31,6 +33,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             log("AppDelegate › onChange — refreshing status icon")
             self.statusItem?.button?.image = makeStatusIcon(for: RunnerStore.shared.aggregateStatus)
             self.observable.reload()
+            // Update contentSize only while popover is closed so the anchor
+            // never moves during a live session, preventing the jump.
+            if self.popover?.isShown == false {
+                self.popover?.contentSize = hc.sizingOptions == .preferredContentSize
+                    ? hc.view.fittingSize
+                    : NSSize(width: 320, height: 400)
+            }
         }
 
         RunnerStore.shared.start()
@@ -43,6 +52,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if popover.isShown {
             popover.performClose(nil)
         } else {
+            // Snap to latest content size just before opening.
+            if let hc { popover.contentSize = hc.view.fittingSize }
             log("AppDelegate › opening popover")
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
         }
