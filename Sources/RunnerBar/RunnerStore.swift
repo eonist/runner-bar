@@ -1,6 +1,8 @@
 import Foundation
 import AppKit
 
+// MARK: - Aggregate status
+
 enum AggregateStatus {
     case allOnline, someOffline, allOffline
     var dot: String {
@@ -19,27 +21,30 @@ enum AggregateStatus {
     }
 }
 
+// MARK: - Store
+
 final class RunnerStore {
     static let shared = RunnerStore()
 
     private(set) var runners: [Runner] = []
-    private(set) var jobs: [ActiveJob] = []  // max 3, shown in UI
+    private(set) var jobs: [ActiveJob] = []  // what UI shows, max 3
 
-    // Never cleared. Populated two ways:
-    // 1. On first launch: seeded from most recent completed API run.
-    // 2. Every poll: jobs that were active last cycle but gone now
-    //    are frozen here immediately (beats API lag every time).
-    private var completedTail: [ActiveJob] = []
-    private var prevActiveJobs: [ActiveJob] = []  // snapshot from last poll
+    /// Full snapshot of live jobs (conclusion == nil) from last poll, keyed by ID.
+    /// Preserved so we have all data when a job vanishes from the API next poll.
+    private var prevLiveJobs: [Int: ActiveJob] = [:]
+
+    /// Persisted completed jobs, keyed by ID. Never cleared mid-session.
+    /// Trimmed to the 3 most recent by completedAt.
+    private var completedCache: [Int: ActiveJob] = [:]
 
     private var timer: Timer?
     var onChange: (() -> Void)?
 
     var aggregateStatus: AggregateStatus {
         guard !runners.isEmpty else { return .allOffline }
-        let n = runners.filter { $0.status == "online" }.count
-        if n == runners.count { return .allOnline }
-        if n == 0             { return .allOffline }
+        let online = runners.filter { $0.status == "online" }.count
+        if online == runners.count { return .allOnline }
+        if online == 0             { return .allOffline }
         return .someOffline
     }
 
@@ -47,83 +52,110 @@ final class RunnerStore {
         log("RunnerStore › start")
         timer?.invalidate()
         fetch()
-        timer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in self?.fetch() }
+        timer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
+            self?.fetch()
+        }
     }
 
     func fetch() {
-        log("RunnerStore › fetch")
-        // Capture main-thread state before going async
-        let snapTail = completedTail
-        let snapPrev = prevActiveJobs
+        let snapPrev  = prevLiveJobs
+        let snapCache = completedCache
 
         DispatchQueue.global(qos: .background).async { [weak self] in
             guard let self else { return }
 
             // ── Runners
-            var all: [Runner] = []
-            for scope in ScopeStore.shared.scopes { all.append(contentsOf: fetchRunners(for: scope)) }
+            var allRunners: [Runner] = []
+            for scope in ScopeStore.shared.scopes {
+                allRunners.append(contentsOf: fetchRunners(for: scope))
+            }
             let metrics = allWorkerMetrics()
-            var busy = all.filter { $0.busy }; var idle = all.filter { !$0.busy }
+            var busy = allRunners.filter { $0.busy }
+            var idle = allRunners.filter { !$0.busy }
             for i in busy.indices { busy[i].metrics = i < metrics.count ? metrics[i] : nil }
-            for i in idle.indices { let s = busy.count + i; idle[i].metrics = s < metrics.count ? metrics[s] : nil }
-            let enriched = busy + idle
+            for i in idle.indices {
+                let s = busy.count + i
+                idle[i].metrics = s < metrics.count ? metrics[s] : nil
+            }
+            let enrichedRunners = busy + idle
 
-            // ── Active jobs this cycle (in_progress + queued runs only)
-            var activeJobs: [ActiveJob] = []
-            for scope in ScopeStore.shared.scopes { activeJobs.append(contentsOf: fetchActiveJobs(for: scope)) }
-            let activeJobs_sorted = activeJobs
-                .filter { $0.conclusion == nil }
-                .sorted { rankJob($0) < rankJob($1) }
-            let activeIDs = Set(activeJobs_sorted.map { $0.id })
-
-            // ── Detect vanished jobs: active last poll, gone this poll.
-            // GitHub moves completed jobs off in_progress/queued endpoints
-            // immediately — freeze them into tail before API lag catches up.
-            let now = Date()
-            let vanished: [ActiveJob] = snapPrev
-                .filter { !activeIDs.contains($0.id) }
-                .map { job in
-                    ActiveJob(
-                        id: job.id, name: job.name,
-                        status: "completed", conclusion: "success",
-                        startedAt: job.startedAt, createdAt: job.createdAt,
-                        completedAt: now, isDimmed: true
-                    )
-                }
-
-            // ── Build new tail: vanished jobs prepended, deduped, capped at 3.
-            // If nothing vanished, keep existing tail unchanged.
-            let newTail: [ActiveJob]
-            if !vanished.isEmpty {
-                var merged = vanished
-                for job in snapTail where !merged.contains(where: { $0.id == job.id }) {
-                    merged.append(job)
-                }
-                newTail = Array(merged.prefix(3))
-            } else {
-                newTail = snapTail
+            // ── Fetch all jobs from currently active runs
+            var allFetched: [ActiveJob] = []
+            for scope in ScopeStore.shared.scopes {
+                allFetched.append(contentsOf: fetchActiveJobs(for: scope))
             }
 
-            // ── Display: active first, fill with tail, cap 3
-            let display = Array((activeJobs_sorted + newTail).prefix(3))
+            let liveJobs  = allFetched.filter { $0.conclusion == nil }
+            let freshDone = allFetched.filter { $0.conclusion != nil }
+            let liveIDs   = Set(liveJobs.map { $0.id })
+            let now       = Date()
 
-            log("RunnerStore › done — \(enriched.count) runners, \(activeJobs_sorted.count) active, \(newTail.count) tail, \(display.count) shown")
+            // ── Update completedCache
+            var newCache = snapCache
+
+            // 1. Vanished jobs: were live last poll, gone this poll.
+            //    Freeze using their last-known data from prevLiveJobs.
+            for (id, job) in snapPrev where !liveIDs.contains(id) {
+                guard newCache[id] == nil else { continue }
+                newCache[id] = ActiveJob(
+                    id: job.id, name: job.name,
+                    status: "completed",
+                    conclusion: job.conclusion ?? "success",
+                    startedAt: job.startedAt,
+                    createdAt: job.createdAt,
+                    completedAt: job.completedAt ?? now,
+                    isDimmed: true
+                )
+            }
+
+            // 2. FreshDone: GitHub still returning them with a conclusion.
+            //    Overwrite to get the real conclusion value.
+            for job in freshDone {
+                newCache[job.id] = ActiveJob(
+                    id: job.id, name: job.name,
+                    status: "completed",
+                    conclusion: job.conclusion,
+                    startedAt: job.startedAt,
+                    createdAt: job.createdAt,
+                    completedAt: job.completedAt ?? now,
+                    isDimmed: true
+                )
+            }
+
+            // Trim to newest 3.
+            if newCache.count > 3 {
+                let sorted = newCache.values
+                    .sorted { ($0.completedAt ?? .distantPast) > ($1.completedAt ?? .distantPast) }
+                newCache = Dictionary(
+                    uniqueKeysWithValues: sorted.prefix(3).map { ($0.id, $0) }
+                )
+            }
+
+            // ── Snapshot live jobs for next poll
+            let newPrevLive = Dictionary(uniqueKeysWithValues: liveJobs.map { ($0.id, $0) })
+
+            // ── Build display list (max 3 slots)
+            // Priority: in_progress → queued → completed (newest first)
+            let inProgress = liveJobs.filter { $0.status == "in_progress" }
+            let queued     = liveJobs.filter { $0.status == "queued" }
+            let cached     = newCache.values
+                .sorted { ($0.completedAt ?? .distantPast) > ($1.completedAt ?? .distantPast) }
+
+            var display: [ActiveJob] = []
+            for job in inProgress where display.count < 3 { display.append(job) }
+            for job in queued     where display.count < 3 { display.append(job) }
+            for job in cached     where display.count < 3 { display.append(job) }
+
+            log("RunnerStore › \(inProgress.count) in_progress \(queued.count) queued | " +
+                "cache: \(newCache.count) | display: \(display.count)")
 
             DispatchQueue.main.async {
-                self.runners        = enriched
+                self.runners        = enrichedRunners
                 self.jobs           = display
-                self.completedTail  = newTail
-                self.prevActiveJobs = activeJobs_sorted
+                self.completedCache = newCache
+                self.prevLiveJobs   = newPrevLive
                 self.onChange?()
             }
         }
-    }
-}
-
-private func rankJob(_ job: ActiveJob) -> Int {
-    switch job.status {
-    case "in_progress": return 0
-    case "queued":      return 1
-    default:            return 2
     }
 }
