@@ -8,11 +8,51 @@ struct PopoverView: View {
     @State private var launchAtLogin = LoginItem.isEnabled
     @State private var isAuthenticated = (githubToken() != nil)
     @State private var tick = 0
+    @State private var selectedJob: ActiveJob? = nil
 
     var body: some View {
+        ZStack {
+            // ── Main list
+            mainView
+                .offset(x: selectedJob == nil ? 0 : -320)
+                .animation(.easeInOut(duration: 0.22), value: selectedJob?.id)
+
+            // ── Detail view
+            if let job = selectedJob {
+                JobDetailView(job: job) {
+                    withAnimation(.easeInOut(duration: 0.22)) {
+                        selectedJob = nil
+                    }
+                }
+                .offset(x: selectedJob == nil ? 320 : 0)
+                .animation(.easeInOut(duration: 0.22), value: selectedJob?.id)
+                .background(Color(NSColor.windowBackgroundColor))
+            }
+        }
+        .frame(minWidth: 320)
+        .fixedSize(horizontal: false, vertical: true)
+        .clipped()
+        .onReceive(store.objectWillChange) {
+            isAuthenticated = (githubToken() != nil)
+            // Keep selectedJob in sync if jobs are updated
+            if let sel = selectedJob,
+               let updated = store.jobs.first(where: { $0.id == sel.id }) {
+                selectedJob = updated
+            }
+        }
+        .onAppear {
+            Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+                tick += 1
+            }
+        }
+    }
+
+    // MARK: - Main list
+
+    private var mainView: some View {
         VStack(alignment: .leading, spacing: 0) {
 
-            // ── Header ────────────────────────────────────────────
+            // ── Header
             HStack {
                 Text("RunnerBar v0.8")
                     .font(.headline)
@@ -43,7 +83,7 @@ struct PopoverView: View {
 
             Divider()
 
-            // ── Active Jobs ──────────────────────────────────
+            // ── Active Jobs
             Text("Active Jobs")
                 .font(.caption)
                 .foregroundColor(.secondary)
@@ -60,39 +100,50 @@ struct PopoverView: View {
                     .padding(.bottom, 2)
             } else {
                 ForEach(store.jobs.prefix(3)) { job in
-                    HStack(spacing: 8) {
-                        jobDot(for: job)
-                        Text(job.name)
-                            .font(.system(size: 12))
-                            .foregroundColor(job.isDimmed ? .secondary : .primary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        Spacer()
-                        if job.isDimmed {
-                            Text(conclusionLabel(for: job))
-                                .font(.caption)
-                                .foregroundColor(conclusionColor(for: job))
-                                .frame(width: 76, alignment: .trailing)
-                        } else {
-                            Text(jobStatusLabel(for: job))
-                                .font(.caption)
-                                .foregroundColor(jobStatusColor(for: job))
-                                .frame(width: 76, alignment: .trailing)
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.22)) {
+                            selectedJob = job
                         }
-                        Text(job.isDimmed ? job.elapsed : elapsedLive(for: job, tick: tick))
-                            .font(.caption.monospacedDigit())
-                            .foregroundColor(.secondary)
-                            .frame(width: 40, alignment: .trailing)
+                    }) {
+                        HStack(spacing: 8) {
+                            jobDot(for: job)
+                            Text(job.name)
+                                .font(.system(size: 12))
+                                .foregroundColor(job.isDimmed ? .secondary : .primary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                            Spacer()
+                            if job.isDimmed {
+                                Text(conclusionLabel(for: job))
+                                    .font(.caption)
+                                    .foregroundColor(conclusionColor(for: job))
+                                    .frame(width: 76, alignment: .trailing)
+                            } else {
+                                Text(jobStatusLabel(for: job))
+                                    .font(.caption)
+                                    .foregroundColor(jobStatusColor(for: job))
+                                    .frame(width: 76, alignment: .trailing)
+                            }
+                            Text(job.isDimmed ? job.elapsed : elapsedLive(for: job, tick: tick))
+                                .font(.caption.monospacedDigit())
+                                .foregroundColor(.secondary)
+                                .frame(width: 40, alignment: .trailing)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 9))
+                                .foregroundColor(.secondary.opacity(0.5))
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 3)
+                        .contentShape(Rectangle())
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 3)
+                    .buttonStyle(.plain)
                 }
                 .padding(.bottom, 6)
             }
 
             Divider()
 
-            // ── Local runners ──────────────────────────────────
+            // ── Local runners
             Text("Local runners")
                 .font(.caption)
                 .foregroundColor(.secondary)
@@ -130,7 +181,7 @@ struct PopoverView: View {
 
             Divider()
 
-            // ── Scope management ────────────────────────────
+            // ── Scope management
             VStack(alignment: .leading, spacing: 4) {
                 Text("Scopes")
                     .font(.caption)
@@ -172,7 +223,7 @@ struct PopoverView: View {
 
             Divider()
 
-            // ── Launch at login ────────────────────────────
+            // ── Launch at login
             Toggle(isOn: $launchAtLogin) {
                 Text("Launch at login").font(.system(size: 13))
             }
@@ -183,7 +234,7 @@ struct PopoverView: View {
 
             Divider()
 
-            // ── Quit ────────────────────────────────────────
+            // ── Quit
             Button(action: { NSApplication.shared.terminate(nil) }) {
                 HStack {
                     Image(systemName: "xmark.square")
@@ -196,23 +247,11 @@ struct PopoverView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
         }
-        .frame(minWidth: 320)
-        .fixedSize(horizontal: false, vertical: true)
-        .onReceive(store.objectWillChange) {
-            isAuthenticated = (githubToken() != nil)
-        }
-        .onAppear {
-            Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
-                tick += 1
-            }
-        }
     }
 
     // MARK: - Elapsed
 
-    private func elapsedLive(for job: ActiveJob, tick _: Int) -> String {
-        job.elapsed
-    }
+    private func elapsedLive(for job: ActiveJob, tick _: Int) -> String { job.elapsed }
 
     // MARK: - Job helpers
 
