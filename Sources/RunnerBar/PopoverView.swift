@@ -1,5 +1,5 @@
 import SwiftUI
 
-// PopoverView is now split into PopoverMainView and JobDetailView.
-// This file is kept as a thin alias so existing references compile.
-typealias PopoverView = PopoverMainView
+// Navigation is now handled inside PopoverMainView via @State.
+// This file kept as empty placeholder to avoid removing it from the target.
+// All content lives in PopoverMainView.swift and JobDetailView.swift.
