@@ -2,6 +2,44 @@ import AppKit
 import SwiftUI
 import ServiceManagement
 
+// ============================================================
+// ⚠️  WARNING — POPOVER SIZING CONTRACT — READ BEFORE EDITING
+// ============================================================
+// TWO SYMPTOMS that keep recurring:
+//   A) LEFT JUMP  — popover flies to far left of screen on open
+//   B) EMPTY SPACE — large black void below content (height stuck at 480pt)
+//
+// THE CONTRACT (all must be true simultaneously):
+//   1. Root Group must have .frame(idealWidth: 340) — NOT .frame(width:)
+//      idealWidth controls NSHostingController.preferredContentSize.width.
+//      .frame(width:) does NOT. They are NOT equivalent here.
+//      Changing idealWidth → width WILL cause left-jump. This has happened 3 times.
+//
+//   2. jobListView must use:
+//        .fixedSize(horizontal: false, vertical: true)
+//        .frame(maxHeight: 480, alignment: .top)
+//      NOT a fixed .frame(height: 480) — that causes empty space.
+//      NOT wrapped in ScrollView — ScrollView reports infinite preferred height.
+//
+//   3. AppDelegate must keep hc.sizingOptions = .preferredContentSize.
+//      Never set popover.contentSize manually.
+//
+//   4. All nav states (jobList, jobSteps, matrixGroup) must share the same
+//      root Group with .frame(idealWidth: 340).
+//      If ANY nav state reports a different ideal width, navigating to it
+//      changes preferredContentSize.width => left jump.
+//
+// WHY idealWidth AND NOT width:
+//   NSHostingController with sizingOptions=.preferredContentSize reads the
+//   SwiftUI view's IDEAL size (not layout size) to set preferredContentSize.
+//   .frame(idealWidth: 340) sets the ideal width to 340 for layout negotiation.
+//   .frame(width: 340) sets a layout constraint but does NOT guarantee the
+//   ideal size reported to NSHostingController is 340 on all nav states.
+//
+// This regression has been introduced and "fixed" 8+ times in one day.
+// See GitHub issue #53 before touching any of this.
+// ============================================================
+
 // MARK: - Navigation state
 
 private enum NavState: Equatable {
@@ -20,17 +58,6 @@ private enum NavState: Equatable {
 }
 
 // MARK: - Root view
-//
-// INVARIANTS — do not break these:
-//   1. .frame(idealWidth: 340) on the root Group
-//      => NSHostingController.preferredContentSize.width is ALWAYS 340
-//      => NSPopover never changes horizontal anchor => no left-jump
-//   2. jobListView uses .fixedSize(horizontal:false, vertical:true) + .frame(maxHeight:480)
-//      => height fits content up to 480pt, no empty black space
-//   3. AppDelegate uses sizingOptions = .preferredContentSize (never remove)
-//      => NSPopover auto-tracks height from SwiftUI
-//   4. Do NOT add .frame(width:) or .frame(width:height:) to the root Group
-//      => those override idealWidth and can cause width to be reported differently
 
 struct PopoverView: View {
     @ObservedObject var store: RunnerStoreObservable
@@ -45,7 +72,12 @@ struct PopoverView: View {
             switch navState {
             case .jobList:
                 jobListView
+                    // ⚠️ fixedSize(vertical:true) measures natural content height.
+                    // DO NOT remove — without it height defaults to 480 => empty space.
+                    // DO NOT wrap jobListView in ScrollView — infinite preferred height.
                     .fixedSize(horizontal: false, vertical: true)
+                    // ⚠️ maxHeight caps at 480pt. DO NOT change to .frame(height:480)
+                    // — that's fixed not max, causes empty space when content is short.
                     .frame(maxHeight: 480, alignment: .top)
             case .jobSteps(let job, let scope):
                 JobStepsView(
@@ -62,9 +94,10 @@ struct PopoverView: View {
                 )
             }
         }
-        // idealWidth=340: locks preferredContentSize.width to 340 across ALL nav states.
-        // Height remains free so NSPopover fits content. Width never changes => no left-jump.
-        // DO NOT change this to .frame(width:) or .frame(width:height:).
+        // ⚠️ THIS MUST BE idealWidth — NOT width, NOT width+height, NOT minWidth.
+        // idealWidth = 340 => NSHostingController.preferredContentSize.width = 340 always.
+        // This is what prevents the left-jump. .frame(width: 340) does NOT do this.
+        // DO NOT change this line. See contract at top of file.
         .frame(idealWidth: 340)
         .onReceive(store.objectWillChange) {
             isAuthenticated = (githubToken() != nil)

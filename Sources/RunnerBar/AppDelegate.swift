@@ -1,18 +1,42 @@
 import AppKit
 import SwiftUI
 
+// ============================================================
+// ⚠️  WARNING — POPOVER SIZING CONTRACT — READ BEFORE EDITING
+// ============================================================
+// NSPopover re-anchors its FULL screen position (including X/horizontal)
+// any time contentSize changes — even by 1pt, even height-only.
+// There is NO AppKit API to update height without triggering a full re-anchor.
+//
+// THE CONTRACT (all three must be true simultaneously):
+//   1. hc.sizingOptions = .preferredContentSize          ← MUST stay
+//   2. popover.contentSize is NEVER set anywhere          ← MUST stay absent
+//   3. PopoverView root Group has .frame(idealWidth: 340) ← MUST stay
+//
+// HOW IT WORKS:
+//   sizingOptions = .preferredContentSize makes NSHostingController
+//   publish SwiftUI's ideal size as preferredContentSize.
+//   .frame(idealWidth: 340) on the root Group ensures
+//   preferredContentSize.width is always exactly 340 across all nav states.
+//   Height varies freely with content. NSPopover reads this and resizes
+//   height-only => anchor never moves => NO LEFT JUMP.
+//
+// THINGS THAT WILL CAUSE THE LEFT-JUMP REGRESSION:
+//   ✗ Setting popover.contentSize anywhere (even once at startup)
+//   ✗ Removing or changing hc.sizingOptions
+//   ✗ Adding KVO on preferredContentSize to update contentSize
+//   ✗ Changing .frame(idealWidth:) to .frame(width:) in PopoverView
+//
+// This regression has been introduced and "fixed" 8+ times in one day.
+// See GitHub issue #53 before touching any of this.
+// ============================================================
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private var hc: NSHostingController<PopoverView>?
     private let observable = RunnerStoreObservable()
-
-    // INVARIANT: Do NOT set popover.contentSize manually.
-    // INVARIANT: Do NOT change sizingOptions away from .preferredContentSize.
-    // The root PopoverView uses .frame(idealWidth: 340) which locks
-    // preferredContentSize.width = 340 always. Height is driven by SwiftUI content.
-    // NSPopover reads preferredContentSize and resizes height-only => no left-jump.
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         log("AppDelegate > applicationDidFinishLaunching")
@@ -25,9 +49,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let hc = NSHostingController(rootView: PopoverView(store: observable))
-        // .preferredContentSize: NSHostingController tracks SwiftUI ideal size.
-        // Root view uses idealWidth=340 so width in preferredContentSize is always 340.
-        // Height changes => popover grows/shrinks downward only, no horizontal movement.
+        // ⚠️ DO NOT remove this line. See contract at top of file.
+        // sizingOptions = .preferredContentSize makes NSHostingController track SwiftUI ideal size.
+        // Combined with .frame(idealWidth: 340) in PopoverView, this keeps width always 340.
         hc.sizingOptions = .preferredContentSize
         self.hc = hc
 
@@ -35,7 +59,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover.behavior              = .transient
         popover.animates              = false
         popover.contentViewController = hc
-        // Do NOT set popover.contentSize here — preferredContentSize drives it.
+        // ⚠️ DO NOT set popover.contentSize here or anywhere else.
+        // preferredContentSize drives it. Any manual write causes a full re-anchor => left jump.
         self.popover = popover
 
         RunnerStore.shared.onChange = { [weak self] in
