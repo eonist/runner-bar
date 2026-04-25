@@ -185,7 +185,7 @@ struct PopoverView: View {
             .toggleStyle(.checkbox)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .onChange(of: launchAtLogin) { _, _ in LoginItem.toggle() }
+            .onChange(of: launchAtLogin) { _ in LoginItem.toggle() }
 
             Divider()
 
