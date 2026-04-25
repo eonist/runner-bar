@@ -3,21 +3,25 @@ import ServiceManagement
 
 // ⚠️ REGRESSION GUARD — frame + padding rules (ref #52 #54 #57)
 //
-// RULE 1: Root VStack MUST use .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-//   AppDelegate sets popover.contentSize. This view fills it. No fixed height here.
-//   ❌ NEVER add .frame(height:) to root VStack
-//   ❌ NEVER add .frame(idealWidth:) — only meaningful under preferredContentSize
+// RULE 1: Root VStack MUST use .frame(idealWidth: 340)
+//   AppDelegate reads hc.view.fittingSize in openPopover() to size the popover.
+//   fittingSize reads SwiftUI's IDEAL size. Without idealWidth set, fittingSize
+//   returns width=0 and AppDelegate falls back to fixedWidth.
+//   ❌ NEVER remove .frame(idealWidth: 340) — fittingSize.width becomes 0
+//   ❌ NEVER use .frame(width: 340) — sets layout width but NOT ideal width
+//   ❌ NEVER use .frame(maxWidth: .infinity) alone — no ideal width = fittingSize.width=0
+//   ❌ NEVER add .frame(height:) to root VStack — fights fittingSize height reading
 //
 // RULE 2: ALL rows use .padding(.horizontal, 12) — uniform across header/jobs/runners/scopes.
 //   Mismatched padding causes visible left-alignment shift between states.
-//   ❌ NEVER change one row’s horizontal padding without changing ALL rows.
+//   ❌ NEVER change one row's horizontal padding without changing ALL rows.
 //
 // RULE 3: Job row HStack Spacer() is LOAD-BEARING.
-//   Removing it causes job name text to left-align when names change length.
+//   Removing it causes job name text to not fill row width.
 //   ❌ NEVER remove the Spacer() inside the job row HStack.
 //
 // RULE 4: NEVER use .fixedSize() on any container.
-//   Fights the fixed-frame architecture AppDelegate provides.
+//   Fights the frame architecture.
 //
 // RULE 5: RunnerStoreObservable.reload() uses withAnimation(nil).
 //   NEVER add objectWillChange.send() to reload().
@@ -34,7 +38,7 @@ struct PopoverMainView: View {
 
             // ── Header
             HStack {
-                Text("RunnerBar v0.26")  // ⚠️ bump on every commit
+                Text("RunnerBar v0.27")  // ⚠️ bump on every commit
                     .font(.headline).foregroundColor(.secondary)
                 Spacer()
                 if isAuthenticated {
@@ -152,9 +156,11 @@ struct PopoverMainView: View {
             .keyboardShortcut("q", modifiers: .command)
             .padding(.horizontal, 12).padding(.vertical, 8)  // ⚠️ RULE 2
         }
-        // ⚠️ RULE 1: fill the fixed contentSize frame AppDelegate provides.
-        // ❌ NEVER add .frame(height:) or .frame(idealWidth:) here.
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // ⚠️ RULE 1: idealWidth=340 so fittingSize returns correct width.
+        // fittingSize.height = VStack intrinsic height (used by openPopover()).
+        // ❌ NEVER remove idealWidth — fittingSize.width collapses to 0.
+        // ❌ NEVER add .frame(height:) — fights fittingSize height.
+        .frame(idealWidth: 340, maxWidth: .infinity, alignment: .top)
         .onReceive(store.objectWillChange) { isAuthenticated = (githubToken() != nil) }
     }
 
