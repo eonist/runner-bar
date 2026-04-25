@@ -82,7 +82,9 @@ final class RunnerStore {
                 allFetched.append(contentsOf: fetchActiveJobs(for: scope))
             }
 
-            let liveJobs  = allFetched.filter { $0.conclusion == nil }
+            let liveJobs  = allFetched
+                .filter  { $0.conclusion == nil }
+                .sorted  { rankJob($0) < rankJob($1) }
             let freshDone = allFetched.filter { $0.conclusion != nil }
             let liveIDs   = Set(liveJobs.map { $0.id })
             let now       = Date()
