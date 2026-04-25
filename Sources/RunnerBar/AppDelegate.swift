@@ -4,41 +4,51 @@ import SwiftUI
 // ============================================================
 // ⚠️  WARNING — POPOVER SIZING CONTRACT — READ BEFORE EDITING
 // ============================================================
-// VERSION: v1.5
+// VERSION: v1.6
 //
 // NSPopover re-anchors its FULL screen position (X and Y) any time
 // contentSize changes — even by 1pt, even height-only changes.
 // There is NO AppKit API to update height without triggering a re-anchor.
 //
-// TWO INDEPENDENT CAUSES OF LEFT-JUMP — both must be fixed simultaneously:
+// THREE INDEPENDENT CAUSES OF LEFT-JUMP — ALL must be fixed simultaneously:
 //
 // CAUSE 1 — SwiftUI frame contract (PopoverView / child views):
 //   - Root Group must use .frame(idealWidth: 340) NOT .frame(width: 340)
 //   - Child nav views must use .frame(maxWidth: .infinity, ...) NOT width: 340
 //   - See PopoverView.swift for full contract details
 //
-// CAUSE 2 — observable.reload() while popover is open (THIS FILE):
+// CAUSE 2 — observable.reload() while popover is open:
 //   - Every poll cycle: RunnerStore.onChange => observable.reload()
 //     => SwiftUI re-render => preferredContentSize changes (even 1pt)
 //     => NSPopover re-anchors screen X position => left jump
-//   - FIX: only call observable.reload() when popover is NOT shown
-//   - On popover close: always do a final reload() so data is fresh on reopen
+//   - FIX: guard with !popoverIsOpen in onChange handler
+//   - FIX: only call reload() in togglePopover BEFORE show()
 //
-// ⚠️  THINGS THAT WILL CAUSE LEFT-JUMP REGRESSION:
+// CAUSE 3 — observable.reload() inside popoverDidClose (THIS WAS v1.5 BUG):
+//   - popoverDidClose => reload() => objectWillChange.send()
+//     => NSPopover (behavior=.transient) sees SwiftUI re-render as
+//     an outside-click event => immediately closes the popover again
+//     => rapid open/close/open/close loop => visible left-jump thrash
+//   - FIX: NEVER call reload() from popoverDidClose
+//   - The onChange handler updates data while closed, so next open
+//     is always fresh WITHOUT needing reload in popoverDidClose
+//
+// ⚠️  THINGS THAT WILL CAUSE LEFT-JUMP / THRASH REGRESSION:
 //   ✗ Calling observable.reload() unconditionally in onChange
+//   ✗ Calling observable.reload() from popoverDidClose  ← CAUSE 3
 //   ✗ Setting popover.contentSize anywhere (even once at startup)
 //   ✗ Removing or changing hc.sizingOptions
 //   ✗ Adding KVO on preferredContentSize to manually update contentSize
 //   ✗ Changing .frame(idealWidth:) to .frame(width:) in PopoverView
-//   ✗ Using .frame(width: 340) in any child nav view (JobStepsView etc.)
+//   ✗ Using .frame(width: 340) in any child nav view
 //
 // ⚠️  THINGS THAT WILL CAUSE EMPTY-SPACE REGRESSION:
 //   ✗ Removing .fixedSize(horizontal:false, vertical:true) from jobListView
 //   ✗ Changing .frame(maxHeight: 480) to .frame(height: 480) on jobListView
 //   ✗ Wrapping jobListView in a ScrollView
 //
-// This regression has been introduced and "fixed" 20+ times in one day.
-// See GitHub issues #53, #54, #58 before touching any of this.
+// This regression has been introduced 25+ times in one day.
+// See GitHub issues #53, #54, #58 before touching ANY of this.
 // ============================================================
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
@@ -49,7 +59,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let observable = RunnerStoreObservable()
 
     // Track whether the popover is currently visible.
-    // Used to suppress observable.reload() while open — see CAUSE 2 above.
+    // ⚠️ Used to suppress observable.reload() while open — see CAUSE 2 above.
+    // ⚠️ Set to true BEFORE show(), set to false in popoverDidClose.
     private var popoverIsOpen = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -84,10 +95,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             self.statusItem?.button?.image = makeStatusIcon(for: RunnerStore.shared.aggregateStatus)
 
             // ⚠️ CAUSE 2 FIX: only reload observable when popover is NOT open.
-            // Calling reload() while popover is visible triggers a SwiftUI re-render
-            // which changes preferredContentSize which causes NSPopover to re-anchor
-            // its full screen position => left jump.
-            // When closed: reload freely so data is always fresh on next open.
+            // Calling reload() while visible => SwiftUI re-render => preferredContentSize
+            // changes => NSPopover re-anchors full screen X position => left jump.
+            // While closed: onChange fires freely and keeps observable current,
+            // so the next open() always shows fresh data.
             if !self.popoverIsOpen {
                 self.observable.reload()
             }
@@ -104,7 +115,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             popover.performClose(nil)
         } else {
             log("AppDelegate > opening popover")
-            // Always do a fresh reload before showing, so data is current.
+            // Snapshot fresh data immediately before showing.
+            // This is the ONLY place reload() should be called proactively.
+            // ⚠️ Do NOT move this reload() to popoverDidClose — see CAUSE 3.
             observable.reload()
             popoverIsOpen = true
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
@@ -114,9 +127,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     // MARK: - NSPopoverDelegate
 
     func popoverDidClose(_ notification: Notification) {
-        log("AppDelegate > popover closed - reloading observable")
+        log("AppDelegate > popoverDidClose")
         popoverIsOpen = false
-        // Final reload so next open shows fresh data immediately.
-        observable.reload()
+        // ⚠️ DO NOT call observable.reload() here.
+        // Calling reload() from popoverDidClose triggers objectWillChange.send()
+        // which NSPopover (behavior=.transient) treats as an outside-click event
+        // and immediately re-closes the popover => open/close thrash => left jump.
+        // The onChange handler keeps data current while the popover is closed.
+        // Fresh data is loaded in togglePopover before the next show().
     }
 }
