@@ -14,7 +14,7 @@ struct PopoverMainView: View {
         VStack(alignment: .leading, spacing: 0) {
 
             HStack {
-                Text("RunnerBar v0.10")
+                Text("RunnerBar v0.12")
                     .font(.headline).foregroundColor(.secondary)
                 Spacer()
                 if isAuthenticated {
@@ -129,6 +129,8 @@ struct PopoverMainView: View {
             .keyboardShortcut("q", modifiers: .command)
             .padding(.horizontal, 12).padding(.vertical, 8)
         }
+        // Pin content to top — prevents vertical centering inside fixed-height popover frame
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onReceive(store.objectWillChange) { isAuthenticated = (githubToken() != nil) }
         .onAppear { Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in tick += 1 } }
     }
