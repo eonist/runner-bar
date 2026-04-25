@@ -1,6 +1,6 @@
 import SwiftUI
 
-// MARK: - Job Steps View (Phase 1)
+// MARK: - Job Steps View (Phase 1 + Phase 2 drill-down)
 
 struct JobStepsView: View {
     let job: ActiveJob
@@ -10,8 +10,35 @@ struct JobStepsView: View {
     @State private var steps: [JobStep] = []
     @State private var isLoading = true
     @State private var tick = 0
+    @State private var selectedStep: JobStep? = nil
 
     var body: some View {
+        ZStack {
+            // ── Steps list
+            if selectedStep == nil {
+                stepsListView
+                    .transition(.move(edge: .leading))
+            }
+
+            // ── Step log drill-down (Phase 2)
+            if let step = selectedStep {
+                StepLogView(
+                    job: job,
+                    step: step,
+                    scope: scope,
+                    onBack: {
+                        withAnimation(.easeInOut(duration: 0.25)) { selectedStep = nil }
+                    }
+                )
+                .transition(.move(edge: .trailing))
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: selectedStep?.id)
+    }
+
+    // MARK: - Steps list
+
+    private var stepsListView: some View {
         VStack(alignment: .leading, spacing: 0) {
 
             // ── Header
@@ -36,12 +63,11 @@ struct JobStepsView: View {
 
             Divider()
 
-            // ── Steps list
+            // ── Steps
             if isLoading {
                 HStack {
                     Spacer()
-                    ProgressView()
-                        .padding(.vertical, 16)
+                    ProgressView().padding(.vertical, 16)
                     Spacer()
                 }
             } else if steps.isEmpty {
@@ -52,36 +78,57 @@ struct JobStepsView: View {
                     .padding(.vertical, 8)
             } else {
                 ForEach(steps) { step in
-                    HStack(spacing: 8) {
-                        stepDot(for: step)
-
-                        Text(step.name)
-                            .font(.system(size: 12))
-                            .foregroundColor(step.isDimmed ? .secondary : .primary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-
-                        Spacer()
-
-                        if step.status == "completed" || step.isSkipped {
-                            Text(conclusionLabel(for: step))
-                                .font(.caption)
-                                .foregroundColor(conclusionColor(for: step))
-                                .frame(width: 76, alignment: .trailing)
-                        } else {
-                            Text(statusLabel(for: step))
-                                .font(.caption)
-                                .foregroundColor(statusColor(for: step))
-                                .frame(width: 76, alignment: .trailing)
+                    let tappable = step.status == "completed" && !step.isSkipped
+                    Button(action: {
+                        guard tappable else { return }
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            selectedStep = step
                         }
+                    }) {
+                        HStack(spacing: 8) {
+                            stepDot(for: step)
 
-                        Text(liveElapsed(for: step))
-                            .font(.caption.monospacedDigit())
-                            .foregroundColor(.secondary)
-                            .frame(width: 40, alignment: .trailing)
+                            Text(step.name)
+                                .font(.system(size: 12))
+                                .foregroundColor(step.isDimmed ? .secondary : .primary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+
+                            Spacer()
+
+                            if step.status == "completed" || step.isSkipped {
+                                Text(conclusionLabel(for: step))
+                                    .font(.caption)
+                                    .foregroundColor(conclusionColor(for: step))
+                                    .frame(width: 76, alignment: .trailing)
+                            } else {
+                                Text(statusLabel(for: step))
+                                    .font(.caption)
+                                    .foregroundColor(statusColor(for: step))
+                                    .frame(width: 76, alignment: .trailing)
+                            }
+
+                            Text(liveElapsed(for: step))
+                                .font(.caption.monospacedDigit())
+                                .foregroundColor(.secondary)
+                                .frame(width: 40, alignment: .trailing)
+
+                            if tappable {
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 9))
+                                    .foregroundColor(.secondary.opacity(0.5))
+                            } else {
+                                // Placeholder to keep alignment consistent
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 9))
+                                    .foregroundColor(.clear)
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 3)
+                        .contentShape(Rectangle())
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 3)
+                    .buttonStyle(.plain)
                     .opacity(step.isDimmed ? 0.5 : 1.0)
                 }
                 .padding(.bottom, 6)
@@ -111,7 +158,7 @@ struct JobStepsView: View {
     // MARK: - Helpers
 
     private func liveElapsed(for step: JobStep) -> String {
-        _ = tick  // force re-eval every tick
+        _ = tick
         return step.elapsed
     }
 
@@ -127,9 +174,9 @@ struct JobStepsView: View {
         case "in_progress": return .yellow
         case "completed":
             switch step.conclusion {
-            case "success":  return .green
-            case "failure":  return .red
-            default:         return .secondary
+            case "success": return .green
+            case "failure": return .red
+            default:        return .secondary
             }
         default: return .gray
         }
