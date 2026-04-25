@@ -10,10 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         log("AppDelegate › applicationDidFinishLaunching")
 
-        // Must be set here, after NSApp is fully initialised.
-        NSApp.setActivationPolicy(.accessory)
-
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem?.button {
             button.image = makeStatusIcon(for: .allOffline)
             button.action = #selector(togglePopover)
@@ -21,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let hc = NSHostingController(rootView: PopoverView(store: observable))
+        hc.sizingOptions = .preferredContentSize
 
         let popover = NSPopover()
         popover.behavior    = .transient
