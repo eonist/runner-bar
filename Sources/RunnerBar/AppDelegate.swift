@@ -4,7 +4,7 @@ import SwiftUI
 // ============================================================
 // ⚠️⚠️⚠️  STOP. READ THIS ENTIRE COMMENT BEFORE TOUCHING THIS FILE.  ⚠️⚠️⚠️
 // ============================================================
-// VERSION: v2.2
+// VERSION: v2.3
 //
 // This file controls a brutally fragile relationship between SwiftUI,
 // NSHostingController, and NSPopover. The symptom when broken is that
@@ -32,7 +32,7 @@ import SwiftUI
 // This is the "left jump" symptom.
 //
 // ============================================================
-// SECTION 2: THE DYNAMIC HEIGHT STRATEGY (v2.2)
+// SECTION 2: THE DYNAMIC HEIGHT STRATEGY (v2.3)
 // ============================================================
 //
 // PROBLEM: We want jobListView to have dynamic (content-sized) height,
@@ -41,24 +41,31 @@ import SwiftUI
 // changes => NSPopover re-anchors => left jump. (CAUSE 8)
 //
 // SOLUTION: Turn OFF automatic sizing (sizingOptions = []) and manually
-// set popover.contentSize exactly ONCE — right before show() — using
-// hc.view.fittingSize to get the natural SwiftUI content size.
+// set popover.contentSize exactly ONCE — right before show() — by:
+//   1. Calling hc.view.layoutSubtreeIfNeeded() to force a synchronous
+//      AppKit layout pass so all subviews have computed their frames.
+//   2. Reading hc.view.fittingSize — which is now accurate.
+//   3. Setting popover.contentSize BEFORE show().
+//
+// WHY layoutSubtreeIfNeeded() IS REQUIRED (v2.3 lesson):
+//   In v2.2, we read fittingSize inside a single DispatchQueue.main.async
+//   block (one runloop tick after reload()). SwiftUI had enqueued its
+//   layout pass but NOT yet executed it. fittingSize returned the
+//   previous (stale/zero) height => popover was sized too small and
+//   clipped its content at the top.
+//
+//   layoutSubtreeIfNeeded() forces AppKit to immediately flush the
+//   pending layout pass synchronously, so fittingSize is accurate.
+//   This is the correct AppKit pattern for "measure before show".
 //
 // WHY THIS IS SAFE:
-//   1. hc.view.fittingSize is read AFTER reload() has fired and SwiftUI
-//      has laid out the view. It reflects the current content.
+//   1. layoutSubtreeIfNeeded() runs synchronously, not after another tick.
 //   2. popover.contentSize is set BEFORE show(). Setting it before the
 //      popover is visible does NOT trigger a position re-anchor.
 //   3. sizingOptions = [] means SwiftUI NEVER auto-updates
 //      preferredContentSize after this point. Navigation between nav
 //      states does NOT change contentSize => no re-anchor => no jump.
-//   4. On next open (popover was closed), we repeat the snapshot.
-//      Each open gets a fresh natural size for the current content.
-//
-// WHY NOT sizingOptions = .preferredContentSize (the old approach):
-//   With auto-sizing on, every SwiftUI re-render (navigation, @State
-//   change, timer tick that changes text) can update preferredContentSize.
-//   Any height change => re-anchor => left jump.
+//   4. On next open, we repeat the snapshot for fresh content size.
 //
 // ============================================================
 // SECTION 3: ALL ROOT CAUSES OF LEFT-JUMP
@@ -87,9 +94,14 @@ import SwiftUI
 //   Fix: Steps pre-loaded in PopoverView before navState changes.
 //
 // CAUSE 8 — Height changes between jobList (dynamic) and child nav views (480pt)
-//   Fix: sizingOptions = [] + manual contentSize snapshot on open (v2.2).
-//        PopoverView root Group uses .frame(idealWidth: 340) only (no minHeight).
-//        Child views keep .frame(maxWidth:.infinity, minHeight:480, maxHeight:480).
+//   Fix: sizingOptions = [] + layoutSubtreeIfNeeded() + fittingSize snapshot
+//        before show(). PopoverView root Group: .frame(idealWidth:340) only.
+//
+// CAUSE 9 — fittingSize read before SwiftUI layout pass completes (v2.2 bug)
+//   What happened: fittingSize was read in first .async tick. SwiftUI had
+//   enqueued but not yet executed its layout pass. Returned stale height.
+//   Popover opened clipped (too short, content cut off at top).
+//   Fix: Call hc.view.layoutSubtreeIfNeeded() before reading fittingSize.
 //
 // ============================================================
 // SECTION 4: COMPLETE FORBIDDEN ACTIONS LIST
@@ -104,6 +116,7 @@ import SwiftUI
 //   ✘ Load steps async inside JobStepsView                      => CAUSE 7
 //   ✘ Re-enable sizingOptions = .preferredContentSize           => CAUSE 8
 //   ✘ Set popover.contentSize while the popover is visible      => re-anchor
+//   ✘ Read fittingSize WITHOUT calling layoutSubtreeIfNeeded() first => CAUSE 9
 //   ✘ Add KVO observer on preferredContentSize                  => feedback loop
 //   ✘ Change popover.animates = false to true                   => re-anchor every frame
 //
@@ -114,6 +127,7 @@ import SwiftUI
 //   ✔ Update statusItem button image in onChange (no size impact)
 //   ✔ Call reload() inside togglePopover AFTER popoverIsOpen = true
 //   ✔ Defer show() with DispatchQueue.main.async
+//   ✔ Call hc.view.layoutSubtreeIfNeeded() before reading fittingSize
 //   ✔ Set popover.contentSize ONCE before show() (while popover is not shown)
 //   ✔ Set popoverIsOpen = false in popoverDidClose
 //   ✔ Fetch steps on background thread then navigate (loadStepsAndNavigate)
@@ -125,13 +139,14 @@ import SwiftUI
 // ============================================================
 //
 // Test 1 — Open with no active jobs. Popover MUST NOT jump. Height should be compact.
-// Test 2 — Open with jobs. Popover MUST NOT jump. Height should fit content.
+// Test 2 — Open with jobs. Popover MUST NOT jump. Height should fit all content.
 // Test 3 — Open and leave open for 30+ seconds. MUST NOT jump.
 // Test 4 — Rapidly open/close 10 times. Must open stably every time.
 // Test 5 — Tap a job row => navigate to steps view. MUST NOT jump.
 // Test 6 — Navigate to steps, wait 5+ seconds. MUST NOT jump.
 // Test 7 — Close popover, wait for job count to change, reopen.
 //          New height must reflect new content. MUST NOT jump.
+// Test 8 — Open popover. Content must NOT be clipped at the top. (CAUSE 9 test)
 //
 // ============================================================
 
@@ -161,8 +176,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let hc = NSHostingController(rootView: PopoverView(store: observable))
         // ⚠️ sizingOptions = [] — CAUSE 8 FIX.
         // We do NOT let SwiftUI auto-update preferredContentSize.
-        // Instead we snapshot hc.view.fittingSize once before each show().
-        // See SECTION 2 for the full explanation.
+        // We snapshot hc.view.fittingSize manually before each show().
         // DO NOT change back to .preferredContentSize.
         hc.sizingOptions = []
         self.hc = hc
@@ -173,7 +187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.contentViewController = hc
         popover.delegate              = self
         // ⚠️ DO NOT set popover.contentSize here at launch.
-        // We set it in togglePopover, right before show(), after layout.
+        // Set it in togglePopover, after layoutSubtreeIfNeeded(), before show().
         self.popover = popover
 
         RunnerStore.shared.onChange = { [weak self] in
@@ -190,7 +204,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         RunnerStore.shared.start()
     }
 
-    // ⚠️⚠️⚠️  ORDER IS NOT NEGOTIABLE. SEE CAUSES 2, 4, 6, AND 8.  ⚠️⚠️⚠️
+    // ⚠️⚠️⚠️  ORDER IS NOT NEGOTIABLE. SEE CAUSES 2, 4, 6, 8, AND 9.  ⚠️⚠️⚠️
     @objc private func togglePopover() {
         guard let button = statusItem?.button,
               button.window != nil,
@@ -206,9 +220,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             // STEP 2: Snapshot fresh data. ONE publish. (CAUSE 5 fix)
             observable.reload()
 
-            // STEP 3: Defer show to next runloop tick so the SwiftUI
-            // layout engine processes the reload() publish before we
-            // read fittingSize. (CAUSE 6 fix)
+            // STEP 3: Defer to next runloop tick so the SwiftUI publish
+            // from reload() is enqueued before we force layout. (CAUSE 6 fix)
             DispatchQueue.main.async { [weak self] in
                 guard let self,
                       let popover = self.popover,
@@ -216,13 +229,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                       let button = self.statusItem?.button else { return }
                 guard !popover.isShown else { return }
 
-                // STEP 4 (CAUSE 8 fix): Read natural size AFTER layout,
-                // clamp width to 340, cap height at 480.
-                // Set contentSize BEFORE show() — safe because popover
-                // is not yet visible, so no re-anchor occurs.
+                // STEP 4 (CAUSE 9 fix): Force AppKit to flush the pending
+                // SwiftUI layout pass synchronously RIGHT NOW, before we
+                // read fittingSize. Without this, SwiftUI has enqueued
+                // its layout work but not yet executed it, so fittingSize
+                // returns a stale (too-small) value => clipped popover.
+                // ⚠️ DO NOT remove this call.
+                hc.view.layoutSubtreeIfNeeded()
+
+                // STEP 5 (CAUSE 8 fix): Read accurate natural size.
+                // Width: always at least 340. Height: 120–480 range.
+                // Set contentSize BEFORE show() — safe, no re-anchor.
                 let fit = hc.view.fittingSize
-                let w = max(fit.width, 340)
-                let h = min(max(fit.height, 120), 480)
+                let w   = max(fit.width, 340)
+                let h   = min(max(fit.height, 120), 480)
                 popover.contentSize = NSSize(width: w, height: h)
                 log("AppDelegate > contentSize set to \(w)×\(h) before show")
 
