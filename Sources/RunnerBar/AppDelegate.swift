@@ -10,7 +10,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         log("AppDelegate › applicationDidFinishLaunching")
 
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        // Must be set here, after NSApp is fully initialised.
+        NSApp.setActivationPolicy(.accessory)
+
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem?.button {
             button.image = makeStatusIcon(for: .allOffline)
             button.action = #selector(togglePopover)
@@ -18,8 +21,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let hc = NSHostingController(rootView: PopoverView(store: observable))
-        // sizingOptions (.preferredContentSize) requires macOS 13+ and caused
-        // silent crashes on older hosts — removed. SwiftUI sizes via .fixedSize.
 
         let popover = NSPopover()
         popover.behavior    = .transient
