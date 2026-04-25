@@ -14,7 +14,7 @@ struct PopoverView: View {
 
             // ── Header ────────────────────────────────────────────
             HStack {
-                Text("RunnerBar v0.7")
+                Text("RunnerBar v0.8")
                     .font(.headline)
                     .foregroundColor(.secondary)
                 Spacer()
@@ -43,45 +43,7 @@ struct PopoverView: View {
 
             Divider()
 
-            // ── Local runners ──────────────────────────────────
-            Text("Local runners")
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .padding(.horizontal, 12)
-                .padding(.top, 8)
-                .padding(.bottom, 2)
-
-            if store.runners.isEmpty {
-                Text(isAuthenticated ? "No runners found" : "Authenticate to see runners")
-                    .foregroundColor(.secondary)
-                    .font(.caption)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 4)
-                    .padding(.bottom, 2)
-            } else {
-                ForEach(store.runners, id: \.id) { runner in
-                    HStack(spacing: 8) {
-                        Circle()
-                            .fill(dotColor(for: runner))
-                            .frame(width: 8, height: 8)
-                        Text(runner.name)
-                            .font(.system(size: 13))
-                            .lineLimit(1)
-                        Spacer()
-                        Text(runner.displayStatus)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                            .fixedSize()
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 5)
-                }
-            }
-
             // ── Active Jobs ──────────────────────────────────
-            Divider()
-
             Text("Active Jobs")
                 .font(.caption)
                 .foregroundColor(.secondary)
@@ -126,6 +88,44 @@ struct PopoverView: View {
                     .padding(.vertical, 3)
                 }
                 .padding(.bottom, 6)
+            }
+
+            Divider()
+
+            // ── Local runners ──────────────────────────────────
+            Text("Local runners")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+                .padding(.bottom, 2)
+
+            if store.runners.isEmpty {
+                Text(isAuthenticated ? "No runners found" : "Authenticate to see runners")
+                    .foregroundColor(.secondary)
+                    .font(.caption)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+                    .padding(.bottom, 2)
+            } else {
+                ForEach(store.runners, id: \.id) { runner in
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(dotColor(for: runner))
+                            .frame(width: 8, height: 8)
+                        Text(runner.name)
+                            .font(.system(size: 13))
+                            .lineLimit(1)
+                        Spacer()
+                        Text(runner.displayStatus)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .fixedSize()
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 5)
+                }
             }
 
             Divider()
