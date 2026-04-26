@@ -5,8 +5,10 @@ import SwiftUI
 // CPU [▓░░] 29.7%  MEM [▓▓▓░] 1.6/16.0GB  DISK [▓▓▓▓▓░] 352/460GB (free: 108GB 24%)
 //
 // RULE: .lineLimit(1) is load-bearing. Do not remove.
-// RULE: bar width 20pt, height 5pt. Do not grow bars — DISK label is long.
-// RULE: segment spacing 6pt. Do not increase — 340pt popover width is tight.
+// RULE: bar width 20pt, height 5pt.
+// RULE: segment spacing 6pt.
+// COLOR: all three segments use usageColor(pct: usedPct) — same as ci-dash.py:
+//   dc = R if dp > 85 else Y if dp > 60 else G
 
 struct SystemStatsView: View {
     let stats: SystemStats
@@ -48,11 +50,11 @@ struct SystemStatsView: View {
     }
 
     // ── DISK ─────────────────────────────────────────────────────────────────
-    // Bar fills on used%. Color on free% (SonarQube threshold).
+    // Color on used% — matches ci-dash.py: dc = R if dp > 85 else Y if dp > 60 else G
 
     private var diskSegment: some View {
         let usedPct = stats.diskTotalGB > 0 ? (stats.diskUsedGB / stats.diskTotalGB) * 100 : 0
-        let color   = diskColor(freePct: stats.diskFreePct)
+        let color   = usageColor(pct: usedPct)
         return HStack(spacing: 4) {
             Text("DISK").font(.caption2).foregroundColor(.secondary)
             bar(fraction: usedPct / 100, color: color)
@@ -82,18 +84,11 @@ struct SystemStatsView: View {
     }
 
     // ── Colors ───────────────────────────────────────────────────────────────
+    // Matches ci-dash.py exactly: R if pct > 85 else Y if pct > 60 else G
 
-    /// CPU / MEM: color on used%
     private func usageColor(pct: Double) -> Color {
         if pct > 85 { return .red }
         if pct > 60 { return .yellow }
-        return .green
-    }
-
-    /// DISK: color on free% — SonarQube needs ≥10% free to run
-    private func diskColor(freePct: Double) -> Color {
-        if freePct < 10 { return .red }
-        if freePct < 20 { return .yellow }
         return .green
     }
 }
