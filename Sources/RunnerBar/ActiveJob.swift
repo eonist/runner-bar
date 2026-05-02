@@ -85,7 +85,9 @@ struct ActiveJob: Identifiable {
 
 // MARK: - gh API
 
-// internal so ActionRun.swift can reuse it without duplicating networking code
+/// Calls the GitHub CLI (`gh api`) with the given endpoint and returns the raw response data.
+/// Internal so `ActionRun.swift` can reuse it without duplicating networking code.
+/// Returns `nil` on launch failure, timeout, or empty response.
 func ghAPI(_ endpoint: String, timeout: TimeInterval = 20) -> Data? {
     let gh = "/opt/homebrew/bin/gh"
     guard FileManager.default.isExecutableFile(atPath: gh) else {
@@ -191,7 +193,7 @@ struct WorkflowRunsResponse: Codable {
     enum CodingKeys: String, CodingKey { case workflowRuns = "workflow_runs" }
 }
 struct WorkflowRun: Codable { let id: Int }
-// internal so ActionRun.swift can reuse the decoder without duplicating structs
+/// Internal so `ActionRun.swift` can reuse the decoder without duplicating structs.
 struct JobsResponse: Codable { let jobs: [JobPayload] }
 struct StepPayload: Codable {
     let name: String
