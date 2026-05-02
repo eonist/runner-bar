@@ -51,6 +51,10 @@ final class RunnerStore {
     /// Capped at 3 entries. Updated on every poll. Main-thread only.
     private(set) var jobs: [ActiveJob] = []
 
+    /// Workflow runs to display: live + recently completed (dimmed).
+    /// Capped at 5 entries (matches ci-dash.py MAX_GROUPS). Main-thread only.
+    private(set) var actions: [ActionRun] = []
+
     // ⚠️ REGRESSION GUARD — completed job persistence (ref issue #54)
     // prevLiveJobs: full snapshot of the LIVE jobs from the previous poll.
     //   Used to detect vanished jobs (were live, now gone) and freeze them into cache.
@@ -64,6 +68,15 @@ final class RunnerStore {
     //   - Trimmed to newest 3 entries to cap memory.
     private var prevLiveJobs: [Int: ActiveJob] = [:]
     private var completedCache: [Int: ActiveJob] = [:]
+
+    // ── Actions persistence (mirrors job cache pattern above)
+    // prevLiveRuns: live ActionRun snapshot from previous poll — used to detect
+    //   vanished runs and freeze them into actionCache.
+    // actionCache: persists completed runs so they survive past the API disappearing.
+    //   - NEVER clear between polls.
+    //   - Trimmed to newest 5 entries (ci-dash.py MAX_GROUPS = 5).
+    private var prevLiveRuns: [Int: ActionRun] = [:]
+    private var actionCache:  [Int: ActionRun] = [:]
 
     /// The repeating 10-second poll timer. Held strongly so it is not deallocated.
     private var timer: Timer?
@@ -109,8 +122,14 @@ final class RunnerStore {
     /// 7. Publish all results to `runners`, `jobs`, `completedCache`, `prevLiveJobs`
     ///    on the main thread, then call `onChange`.
     func fetch() {
-        let snapPrev  = prevLiveJobs
-        let snapCache = completedCache
+        // Snapshot all mutable state on the main thread BEFORE entering the
+        // background block, mirroring the prevLiveJobs/completedCache pattern.
+        // ⚠️ NEVER read self.prevLiveRuns/actionCache inside the background block
+        //    directly — that would be a data race with the main-thread writes below.
+        let snapPrev     = prevLiveJobs
+        let snapCache    = completedCache
+        let snapPrevRuns = prevLiveRuns
+        let snapRunCache = actionCache
 
         DispatchQueue.global(qos: .background).async { [weak self] in
             guard let self else { return }
@@ -205,6 +224,74 @@ final class RunnerStore {
             log("RunnerStore › \(inProgress.count) in_progress \(queued.count) queued | " +
                 "cache: \(newCache.count) | display: \(display.count)")
 
+            // ── Fetch actions (workflow runs with their jobs)
+            // snapPrevRuns / snapRunCache were captured on the main thread above.
+            var allFetchedRuns: [ActionRun] = []
+            for scope in ScopeStore.shared.scopes {
+                allFetchedRuns.append(contentsOf: fetchActions(for: scope))
+            }
+
+            let liveRuns   = allFetchedRuns.filter { $0.conclusion == nil }
+            let doneRuns   = allFetchedRuns.filter { $0.conclusion != nil }
+            let liveRunIDs = Set(liveRuns.map { $0.id })
+            let nowRuns    = Date()
+
+            var newRunCache = snapRunCache
+
+            // Vanished runs: were live last poll, absent now — freeze with isDimmed.
+            for (id, run) in snapPrevRuns where !liveRunIDs.contains(id) {
+                guard newRunCache[id] == nil else { continue }
+                var frozen = run
+                frozen.isDimmed = true
+                if frozen.updatedAt == nil {
+                    // Synthesise an updatedAt so elapsed/sort logic works.
+                    frozen = ActionRun(
+                        id: frozen.id, name: frozen.name, repo: frozen.repo,
+                        status: "completed", conclusion: frozen.conclusion ?? "success",
+                        headBranch: frozen.headBranch,
+                        createdAt: frozen.createdAt, updatedAt: nowRuns,
+                        htmlUrl: frozen.htmlUrl, jobs: frozen.jobs, isDimmed: true
+                    )
+                }
+                newRunCache[id] = frozen
+            }
+
+            // Fresh-done runs: concluded while still appearing in active API results.
+            for run in doneRuns {
+                newRunCache[run.id] = ActionRun(
+                    id: run.id, name: run.name, repo: run.repo,
+                    status: "completed", conclusion: run.conclusion,
+                    headBranch: run.headBranch,
+                    createdAt: run.createdAt, updatedAt: run.updatedAt ?? nowRuns,
+                    htmlUrl: run.htmlUrl, jobs: run.jobs, isDimmed: true
+                )
+            }
+
+            // Trim to newest 5 (ci-dash.py MAX_GROUPS = 5).
+            if newRunCache.count > 5 {
+                let sorted = newRunCache.values
+                    .sorted { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
+                newRunCache = Dictionary(
+                    uniqueKeysWithValues: sorted.prefix(5).map { ($0.id, $0) }
+                )
+            }
+
+            let newPrevLiveRuns = Dictionary(uniqueKeysWithValues: liveRuns.map { ($0.id, $0) })
+
+            // Display: in_progress → queued → cached done (newest first), max 5.
+            let inProgressRuns = liveRuns.filter { $0.status == "in_progress" }
+            let queuedRuns     = liveRuns.filter { $0.status == "queued" }
+            let cachedRuns     = newRunCache.values
+                .sorted { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
+
+            var displayActions: [ActionRun] = []
+            for run in inProgressRuns where displayActions.count < 5 { displayActions.append(run) }
+            for run in queuedRuns     where displayActions.count < 5 { displayActions.append(run) }
+            for run in cachedRuns     where displayActions.count < 5 { displayActions.append(run) }
+
+            log("RunnerStore › actions: \(inProgressRuns.count) in_progress " +
+                "\(queuedRuns.count) queued | cache: \(newRunCache.count) | display: \(displayActions.count)")
+
             // All property writes must happen on the main thread because they are
             // observed by SwiftUI via RunnerStoreObservable (@Published properties).
             DispatchQueue.main.async {
@@ -212,6 +299,9 @@ final class RunnerStore {
                 self.jobs           = display
                 self.completedCache = newCache
                 self.prevLiveJobs   = newPrevLive
+                self.actions        = displayActions
+                self.actionCache    = newRunCache
+                self.prevLiveRuns   = newPrevLiveRuns
                 self.onChange?()
             }
         }

@@ -28,6 +28,7 @@ import ServiceManagement
 struct PopoverMainView: View {
     @ObservedObject var store: RunnerStoreObservable
     let onSelectJob: (ActiveJob) -> Void
+    let onSelectAction: (ActionRun) -> Void
 
     @State private var newScope = ""
     @State private var launchAtLogin = LoginItem.isEnabled
@@ -39,7 +40,7 @@ struct PopoverMainView: View {
 
             // ── Header
             HStack {
-                Text("RunnerBar v0.29")  // ⚠️ bump on every commit
+                Text("RunnerBar v0.30")  // ⚠️ bump on every commit
                     .font(.headline).foregroundColor(.secondary)
                 Spacer()
                 if isAuthenticated {
@@ -65,6 +66,49 @@ struct PopoverMainView: View {
                 .font(.caption).foregroundColor(.secondary)
                 .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 2)  // ⚠️ RULE 2
             SystemStatsView(stats: systemStats.stats)
+
+            Divider()
+
+            // ── Actions
+            Text("Actions")
+                .font(.caption).foregroundColor(.secondary)
+                .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 2)  // ⚠️ RULE 2
+
+            if store.actions.isEmpty {
+                Text("No recent actions")
+                    .font(.caption).foregroundColor(.secondary)
+                    .padding(.horizontal, 12).padding(.vertical, 4)  // ⚠️ RULE 2
+            } else {
+                ForEach(store.actions.prefix(5)) { run in
+                    Button(action: { onSelectAction(run) }) {
+                        HStack(spacing: 8) {
+                            actionDot(for: run)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(run.name)
+                                    .font(.system(size: 12))
+                                    .foregroundColor(run.isDimmed ? .secondary : .primary)
+                                    .lineLimit(1).truncationMode(.tail)
+                                Text(run.repo)
+                                    .font(.caption2).foregroundColor(.secondary)
+                                    .lineLimit(1).truncationMode(.middle)
+                            }
+                            Spacer()  // ⚠️ RULE 3: load-bearing — do NOT remove
+                            Text(run.isDimmed ? actionConclusionLabel(for: run) : actionStatusLabel(for: run))
+                                .font(.caption)
+                                .foregroundColor(run.isDimmed ? actionConclusionColor(for: run) : actionStatusColor(for: run))
+                                .frame(width: 76, alignment: .trailing)
+                            Text(run.elapsed)
+                                .font(.caption.monospacedDigit()).foregroundColor(.secondary)
+                                .frame(width: 40, alignment: .trailing)
+                            Image(systemName: "chevron.right")
+                                .font(.caption2).foregroundColor(.secondary)
+                        }
+                        .padding(.horizontal, 12).padding(.vertical, 3)  // ⚠️ RULE 2
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.bottom, 6)
+            }
 
             Divider()
 
@@ -212,6 +256,46 @@ struct PopoverMainView: View {
         switch job.conclusion { case "success": return .green; case "failure": return .red; default: return .secondary }
     }
 
+    // MARK: — Action row helpers
+
+    /// Colored dot for an action run row, mirroring jobDot logic.
+    @ViewBuilder
+    private func actionDot(for run: ActionRun) -> some View {
+        Circle()
+            .fill(run.isDimmed ? Color.secondary : (run.status == "in_progress" ? Color.yellow : Color.gray))
+            .frame(width: 7, height: 7)
+    }
+
+    private func actionStatusLabel(for run: ActionRun) -> String {
+        switch run.status {
+        case "in_progress": return "In Progress"
+        case "queued":      return "Queued"
+        default:            return "Done"
+        }
+    }
+
+    private func actionStatusColor(for run: ActionRun) -> Color {
+        run.status == "in_progress" ? .yellow : .secondary
+    }
+
+    private func actionConclusionLabel(for run: ActionRun) -> String {
+        switch run.conclusion {
+        case "success":   return "✓ success"
+        case "failure":   return "✗ failure"
+        case "cancelled": return "⊗ cancelled"
+        case "skipped":   return "− skipped"
+        default:          return run.conclusion ?? "done"
+        }
+    }
+
+    private func actionConclusionColor(for run: ActionRun) -> Color {
+        switch run.conclusion {
+        case "success": return .green
+        case "failure": return .red
+        default:        return .secondary
+        }
+    }
+
     /// Returns the status dot color for a self-hosted runner row.
     /// Offline runners are gray; online+busy runners are yellow; online+idle are green.
     private func dotColor(for runner: Runner) -> Color {
@@ -241,6 +325,7 @@ struct PopoverMainView: View {
 final class RunnerStoreObservable: ObservableObject {
     @Published var runners: [Runner] = []
     @Published var jobs: [ActiveJob] = []
+    @Published var actions: [ActionRun] = []
     /// Initialises the observable and performs an eager reload so the view has
     /// data immediately on first render without waiting for a polling cycle.
     init() { reload() }
@@ -249,6 +334,7 @@ final class RunnerStoreObservable: ObservableObject {
         withAnimation(nil) {
             runners = RunnerStore.shared.runners
             jobs    = RunnerStore.shared.jobs
+            actions = RunnerStore.shared.actions
         }
     }
 }
