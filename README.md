@@ -70,6 +70,20 @@ See [issue #1](https://github.com/eonist/runner-bar/issues/1) for the full spec.
 
 ---
 
+## Deployment
+
+1. download and build. close current apps
+2. build and deploy
+3. test user-facing download
+
+```bash
+git pull && bash build.sh && pkill RunnerBar; sleep 1 && open dist/RunnerBar.app 2>&1
+bash build.sh && bash deploy.sh
+curl -fsSL https://eonist.github.io/runner-bar/install.sh | bash
+```
+
+---
+
 ## Contributing
 
 This project is built with SwiftPM and edited with AI assistance — no Xcode required.
