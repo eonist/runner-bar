@@ -2,8 +2,8 @@
 
 > Self-hosted GitHub Actions runners, at a glance in your macOS menu bar.
 
-![RunnerBar screenshot](https://raw.githubusercontent.com/eonist/runner-bar/main/runner-bar.gif)
-
+![screenshot.png](screenshot.png) 
+ 
 ---
 
 ## The problem
