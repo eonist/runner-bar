@@ -51,6 +51,10 @@ final class RunnerStore {
     /// Capped at 3 entries. Updated on every poll. Main-thread only.
     private(set) var jobs: [ActiveJob] = []
 
+    /// Action groups to display: live + recently completed (dimmed).
+    /// Capped at 5 entries (matches ci-dash.py MAX_GROUPS). Main-thread only.
+    private(set) var actions: [ActionGroup] = []
+
     // ⚠️ REGRESSION GUARD — completed job persistence (ref issue #54)
     // prevLiveJobs: full snapshot of the LIVE jobs from the previous poll.
     //   Used to detect vanished jobs (were live, now gone) and freeze them into cache.
@@ -65,7 +69,23 @@ final class RunnerStore {
     private var prevLiveJobs: [Int: ActiveJob] = [:]
     private var completedCache: [Int: ActiveJob] = [:]
 
-    /// The repeating 10-second poll timer. Held strongly so it is not deallocated.
+    // ── Action group persistence (mirrors completedCache pattern)
+    // prevLiveGroups: live ActionGroup snapshot from the previous poll.
+    //   Used to detect vanished groups (were live, now gone) and freeze them.
+    // actionGroupCache: persists completed groups keyed by head_sha (String).
+    //   - NEVER clear between polls.
+    //   - Key is head_sha — stable across polls even as run IDs change.
+    //   - Trimmed to newest 5 entries (ci-dash.py MAX_GROUPS = 5).
+    // ⚠️ Snapshots MUST be taken on the main thread before the background block.
+    private var prevLiveGroups: [String: ActionGroup] = [:]
+    private var actionGroupCache: [String: ActionGroup] = [:]
+
+    /// True when the most recent poll cycle detected a GitHub rate-limit response.
+    /// Drives the 60s backoff interval and the UI warning row.
+    private(set) var isRateLimited = false
+
+    /// One-shot adaptive poll timer. Rescheduled by `scheduleTimer()` after each fetch.
+    /// Held strongly so it is not deallocated between polls.
     private var timer: Timer?
 
     /// Called on the main thread after each poll completes.
@@ -82,21 +102,36 @@ final class RunnerStore {
         return .someOffline
     }
 
-    /// Starts (or restarts) the 10-second polling timer and fires an immediate fetch.
-    /// Invalidates any existing timer first to prevent stacked timers when called
-    /// multiple times (e.g. each time a new scope is added via `submitScope()`).
+    /// Starts (or restarts) the polling timer and fires an immediate fetch.
+    /// Invalidates any existing timer first. The next timer is scheduled adaptively
+    /// inside `fetch()`’s main.async block once results are available.
     func start() {
         log("RunnerStore › start")
-        timer?.invalidate()  // ⚠️ Always invalidate before creating a new timer — prevents stacking
+        timer?.invalidate()
         fetch()
-        timer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
+    }
+
+    /// Schedules the next one-shot poll timer using an adaptive interval:
+    /// - 10 s when any job or group is actively running (in_progress / queued)
+    /// - 60 s when idle or rate-limited
+    ///
+    /// Always invalidates the previous timer first so calling this more than once
+    /// cannot accumulate stacked timers.
+    /// Must be called on the main thread (reads main-thread-owned state).
+    private func scheduleTimer() {
+        timer?.invalidate()
+        let hasActive = jobs.contains    { $0.status == "in_progress" || $0.status == "queued" }
+                     || actions.contains { $0.groupStatus == .inProgress || $0.groupStatus == .queued }
+        let interval: TimeInterval = (isRateLimited || !hasActive) ? 60 : 10
+        log("RunnerStore › next poll in \(Int(interval))s (active=\(hasActive) rateLimited=\(isRateLimited))")
+        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
             self?.fetch()
         }
     }
 
-    /// Fetches runners and active jobs for all scopes on a background thread.
+    /// Fetches runners, active jobs, and action groups for all scopes on a background thread.
     ///
-    /// Algorithm:
+    /// Algorithm (jobs):
     /// 1. Fetch runners via `fetchRunners(for:)` and enrich with local `ps aux` metrics.
     /// 2. Fetch active jobs via `fetchActiveJobs(for:)` for every scope.
     /// 3. Diff live jobs against `prevLiveJobs` to detect vanished jobs and freeze them
@@ -106,14 +141,27 @@ final class RunnerStore {
     /// 5. Trim cache to the 3 most-recently-completed jobs.
     /// 6. Build the display list: in_progress → queued → cached done (newest first),
     ///    capped at 3. This priority ensures actively-running jobs are always visible.
-    /// 7. Publish all results to `runners`, `jobs`, `completedCache`, `prevLiveJobs`
-    ///    on the main thread, then call `onChange`.
+    ///
+    /// Algorithm (action groups — mirrors jobs diff exactly):
+    /// 8. Fetch action groups via `fetchActionGroups(for:)` for every scope.
+    /// 9. Diff live groups against `prevLiveGroups` by head_sha.
+    /// 10. Vanished groups → freeze into `actionGroupCache` with `isDimmed = true`.
+    /// 11. Trim cache to 5 groups (ci-dash.py MAX_GROUPS).
+    /// 12. Publish `actions` alongside `jobs` on the main thread.
     func fetch() {
-        let snapPrev  = prevLiveJobs
-        let snapCache = completedCache
+        // ⚠️ Snapshot mutable state on the main thread BEFORE the background block.
+        //    Direct reads inside the async block are data races.
+        let snapPrev       = prevLiveJobs
+        let snapCache      = completedCache
+        let snapPrevGroups = prevLiveGroups
+        let snapGroupCache = actionGroupCache
 
         DispatchQueue.global(qos: .background).async { [weak self] in
             guard let self else { return }
+
+            // Reset rate-limit flag for this poll cycle.
+            // ghAPI() will set it back to true if any call gets a 403/429.
+            ghIsRateLimited = false
 
             // ── Runners
             var allRunners: [Runner] = []
@@ -147,6 +195,8 @@ final class RunnerStore {
 
             // ⚠️ CALLSITE 2 of 3 — Vanished jobs: were live last poll, gone now.
             // Freeze with last known data. completedAt defaults to now if API had none.
+            // steps: forward whatever the live snapshot had — backfill loop below
+            // will re-fetch from the single-job endpoint if steps are still empty (#110/#111).
             for (id, job) in snapPrev where !liveIDs.contains(id) {
                 guard newCache[id] == nil else { continue }
                 newCache[id] = ActiveJob(
@@ -158,12 +208,14 @@ final class RunnerStore {
                     createdAt:   job.createdAt,
                     completedAt: job.completedAt ?? now,
                     htmlUrl:     job.htmlUrl,
-                    isDimmed:    true
+                    isDimmed:    true,
+                    steps:       job.steps
                 )
             }
 
             // ⚠️ CALLSITE 3 of 3 — Fresh done: jobs with a conclusion inside active runs.
             // Overwrite cache entry with real conclusion data from the API.
+            // steps: fetchActiveJobs already populated steps for live jobs; forward them.
             for job in freshDone {
                 newCache[job.id] = ActiveJob(
                     id:          job.id,
@@ -174,7 +226,8 @@ final class RunnerStore {
                     createdAt:   job.createdAt,
                     completedAt: job.completedAt ?? now,
                     htmlUrl:     job.htmlUrl,
-                    isDimmed:    true
+                    isDimmed:    true,
+                    steps:       job.steps
                 )
             }
 
@@ -185,6 +238,22 @@ final class RunnerStore {
                 newCache = Dictionary(
                     uniqueKeysWithValues: sorted.prefix(3).map { ($0.id, $0) }
                 )
+            }
+
+            // Backfill steps for cached jobs that concluded with empty steps (#110/#111).
+            // Fires once per broken entry via the single-job endpoint; the steps.isEmpty
+            // guard skips the entry on subsequent polls once steps are populated.
+            let backfillIso = ISO8601DateFormatter()
+            for id in Array(newCache.keys) {
+                let cached = newCache[id]!
+                guard cached.conclusion != nil,
+                      (cached.steps.isEmpty || cached.steps.contains(where: { $0.status == "in_progress" })),
+                      let scope    = scopeFromHtmlUrl(cached.htmlUrl),
+                      let data     = ghAPI("repos/\(scope)/actions/jobs/\(id)"),
+                      let fresh    = try? JSONDecoder().decode(JobPayload.self, from: data),
+                      let rawSteps = fresh.steps, !rawSteps.isEmpty
+                else { continue }
+                newCache[id] = makeActiveJob(from: fresh, iso: backfillIso, isDimmed: true)
             }
 
             let newPrevLive = Dictionary(uniqueKeysWithValues: liveJobs.map { ($0.id, $0) })
@@ -205,14 +274,148 @@ final class RunnerStore {
             log("RunnerStore › \(inProgress.count) in_progress \(queued.count) queued | " +
                 "cache: \(newCache.count) | display: \(display.count)")
 
+            // ── Action groups
+            var allFetchedGroups: [ActionGroup] = []
+            for scope in ScopeStore.shared.scopes {
+                allFetchedGroups.append(contentsOf: fetchActionGroups(for: scope, cache: snapGroupCache))
+            }
+
+            // Live groups = those that have at least one in_progress or queued run.
+            let liveGroups = allFetchedGroups.filter { $0.groupStatus != .completed }
+            let doneGroups = allFetchedGroups.filter { $0.groupStatus == .completed }
+            let liveGroupIDs = Set(liveGroups.map { $0.id })
+            let nowGroups = Date()
+
+            var newGroupCache = snapGroupCache
+
+            // Vanished groups: were live last poll, absent now — freeze.
+            // ⚠️ Do NOT use `guard == nil` here: always overwrite if the incoming freeze
+            //    has a richer job list (more jobs fetched) than what is already cached.
+            //    The guard would lock in stale mid-run job snapshots forever (issue #91).
+            for (sha, group) in snapPrevGroups where !liveGroupIDs.contains(sha) {
+                if let existing = newGroupCache[sha], existing.jobs.count >= group.jobs.count { continue }
+                var frozen = group
+                frozen.isDimmed = true
+                // Synthesise a last-updated time if missing.
+                if frozen.lastJobCompletedAt == nil {
+                    frozen = ActionGroup(
+                        id: frozen.id, label: frozen.label, title: frozen.title,
+                        headBranch: frozen.headBranch, repo: frozen.repo,
+                        runs: frozen.runs, jobs: frozen.jobs,
+                        firstJobStartedAt: frozen.firstJobStartedAt,
+                        lastJobCompletedAt: nowGroups,
+                        createdAt: frozen.createdAt, isDimmed: true
+                    )
+                }
+                newGroupCache[sha] = frozen
+            }
+
+            // Fresh-done groups: concluded in this poll.
+            for group in doneGroups {
+                var dimmed = group
+                dimmed.isDimmed = true
+                newGroupCache[group.id] = dimmed
+            }
+
+            // Trim to newest 5 (ci-dash.py MAX_GROUPS = 5).
+            if newGroupCache.count > 5 {
+                let sorted = newGroupCache.values.sorted {
+                    ($0.lastJobCompletedAt ?? $0.createdAt ?? .distantPast) >
+                    ($1.lastJobCompletedAt ?? $1.createdAt ?? .distantPast)
+                }
+                newGroupCache = Dictionary(
+                    uniqueKeysWithValues: sorted.prefix(5).map { ($0.id, $0) }
+                )
+            }
+
+            let newPrevLiveGroups = Dictionary(uniqueKeysWithValues: liveGroups.map { ($0.id, $0) })
+
+            // Display: in_progress → queued → cached done (newest first), max 5.
+            // Dedup: skip cache entries whose sha is already in the live list.
+            let inProgressGroups = liveGroups.filter { $0.groupStatus == .inProgress }
+            let queuedGroups     = liveGroups.filter { $0.groupStatus == .queued }
+            let cachedGroups     = newGroupCache.values.sorted {
+                ($0.lastJobCompletedAt ?? $0.createdAt ?? .distantPast) >
+                ($1.lastJobCompletedAt ?? $1.createdAt ?? .distantPast)
+            }
+            let liveGroupIDsInDisplay = Set((inProgressGroups + queuedGroups).map { $0.id })
+
+            var displayGroups: [ActionGroup] = []
+            for g in inProgressGroups                        where displayGroups.count < 5 { displayGroups.append(g) }
+            for g in queuedGroups                            where displayGroups.count < 5 { displayGroups.append(g) }
+            for g in cachedGroups
+                where displayGroups.count < 5 && !liveGroupIDsInDisplay.contains(g.id) {
+                displayGroups.append(g)
+            }
+
+            log("RunnerStore › groups: \(inProgressGroups.count) in_progress " +
+                "\(queuedGroups.count) queued | cache: \(newGroupCache.count) | display: \(displayGroups.count)")
+
+            // ── Cross-reference group jobs with completedCache (issue #96)
+            // The GitHub Jobs API lags: fetchJobsForRun can return
+            // status:"in_progress", conclusion:nil for a job that has already
+            // concluded. The Active Jobs path already captured the correct
+            // conclusion in newCache via vanish-freeze. Substitute stale entries
+            // here so ActionDetailView shows correct statuses immediately.
+            //
+            // isDimmed is kept false: completed jobs inside a live group should
+            // not be greyed out — they should show their conclusion in full colour.
+            func enrichGroupJobs(_ jobs: [ActiveJob]) -> [ActiveJob] {
+                jobs.map { job in
+                    // Primary: substitute from completedCache when available.
+                    if job.conclusion == nil,
+                       let hit = newCache[job.id],
+                       hit.conclusion != nil {
+                        return ActiveJob(
+                            id:          job.id,
+                            name:        job.name,
+                            status:      hit.status,
+                            conclusion:  hit.conclusion,
+                            startedAt:   job.startedAt   ?? hit.startedAt,
+                            createdAt:   job.createdAt   ?? hit.createdAt,
+                            completedAt: hit.completedAt ?? job.completedAt,
+                            htmlUrl:     job.htmlUrl     ?? hit.htmlUrl,
+                            isDimmed:    false,
+                            steps:       job.steps.isEmpty ? hit.steps : job.steps
+                        )
+                    }
+                    // Secondary: completedAt is set but conclusion not yet propagated (#103).
+                    // GitHub-hosted runner jobs can have a timestamp without a conclusion
+                    // when the API lags. Treat as success so the row stops lingering.
+                    if job.conclusion == nil, let _ = job.completedAt {
+                        return ActiveJob(
+                            id:          job.id,
+                            name:        job.name,
+                            status:      "completed",
+                            conclusion:  "success",
+                            startedAt:   job.startedAt,
+                            createdAt:   job.createdAt,
+                            completedAt: job.completedAt,
+                            htmlUrl:     job.htmlUrl,
+                            isDimmed:    false,
+                            steps:       job.steps
+                        )
+                    }
+                    return job
+                }
+            }
+
+            let mergedDisplayGroups = displayGroups.map    { $0.withJobs(enrichGroupJobs($0.jobs)) }
+            let mergedGroupCache    = newGroupCache.mapValues { $0.withJobs(enrichGroupJobs($0.jobs)) }
+
             // All property writes must happen on the main thread because they are
             // observed by SwiftUI via RunnerStoreObservable (@Published properties).
             DispatchQueue.main.async {
-                self.runners        = enrichedRunners
-                self.jobs           = display
-                self.completedCache = newCache
-                self.prevLiveJobs   = newPrevLive
+                self.runners          = enrichedRunners
+                self.jobs             = display
+                self.completedCache   = newCache
+                self.prevLiveJobs     = newPrevLive
+                self.actions          = mergedDisplayGroups
+                self.actionGroupCache = mergedGroupCache
+                self.prevLiveGroups   = newPrevLiveGroups
+                self.isRateLimited    = ghIsRateLimited
                 self.onChange?()
+                self.scheduleTimer()
             }
         }
     }

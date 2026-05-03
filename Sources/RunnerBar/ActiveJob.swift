@@ -85,7 +85,15 @@ struct ActiveJob: Identifiable {
 
 // MARK: - gh API
 
-private func ghAPI(_ endpoint: String, timeout: TimeInterval = 20) -> Data? {
+/// Set to `true` when any `ghAPI` call receives a 403/429 rate-limit response.
+/// Reset to `false` at the start of each `RunnerStore.fetch()` poll cycle.
+/// Intentionally non-atomic: a one-cycle lag in the UI warning is acceptable.
+var ghIsRateLimited: Bool = false
+
+/// Calls the GitHub CLI (`gh api`) with the given endpoint and returns raw response data.
+/// Internal so `ActionGroup.swift` can reuse it without duplicating networking code.
+/// Returns `nil` on launch failure, timeout, or empty response.
+func ghAPI(_ endpoint: String, timeout: TimeInterval = 20) -> Data? {
     let gh = "/opt/homebrew/bin/gh"
     guard FileManager.default.isExecutableFile(atPath: gh) else {
         log("ghAPI › gh not found at \(gh)")
@@ -118,6 +126,15 @@ private func ghAPI(_ endpoint: String, timeout: TimeInterval = 20) -> Data? {
     let tail = pipe.fileHandleForReading.readDataToEndOfFile()
     if !tail.isEmpty { lock.lock(); outputData.append(tail); lock.unlock() }
     log("ghAPI › \(endpoint) → \(outputData.count)b exit \(task.terminationStatus)")
+    // Detect rate limit — gh api returns a JSON error body with a "status" field.
+    // Only set the flag to true here; reset happens at the top of each fetch() cycle.
+    if let json = try? JSONSerialization.jsonObject(with: outputData) as? [String: Any],
+       let status = json["status"] as? String,
+       status == "403" || status == "429" {
+        ghIsRateLimited = true
+        log("ghAPI › rate limit (\(status)): \(endpoint)")
+        return nil
+    }
     return outputData.isEmpty ? nil : outputData
 }
 
@@ -183,15 +200,30 @@ func fetchActiveJobs(for scope: String) -> [ActiveJob] {
     return jobs
 }
 
+// MARK: - URL helpers
+
+/// Extracts the "owner/repo" scope from a GitHub Actions job HTML URL.
+/// Pattern: https://github.com/owner/repo/actions/runs/...
+/// Returns nil if the URL is missing or has fewer than 3 path components.
+func scopeFromHtmlUrl(_ urlString: String?) -> String? {
+    guard let urlString,
+          let url = URL(string: urlString),
+          url.pathComponents.count >= 3
+    else { return nil }
+    let c = url.pathComponents  // ["/", "owner", "repo", "actions", ...]
+    return "\(c[1])/\(c[2])"
+}
+
 // MARK: - Codable helpers
 
-private struct WorkflowRunsResponse: Codable {
+struct WorkflowRunsResponse: Codable {
     let workflowRuns: [WorkflowRun]
     enum CodingKeys: String, CodingKey { case workflowRuns = "workflow_runs" }
 }
-private struct WorkflowRun: Codable { let id: Int }
-private struct JobsResponse: Codable { let jobs: [JobPayload] }
-private struct StepPayload: Codable {
+struct WorkflowRun: Codable { let id: Int }
+/// Internal so `ActionGroup.swift` can decode job lists without duplicating structs.
+struct JobsResponse: Codable { let jobs: [JobPayload] }
+struct StepPayload: Codable {
     let name: String
     let status: String
     let conclusion: String?
@@ -203,7 +235,7 @@ private struct StepPayload: Codable {
         case completedAt = "completed_at"
     }
 }
-private struct JobPayload: Codable {
+struct JobPayload: Codable {
     let id: Int; let name: String; let status: String
     let conclusion: String?
     let startedAt: String?
