@@ -1,6 +1,6 @@
 # RunnerBar
 
-A macOS menu bar app that shows the status of your GitHub self-hosted runners at a glance.
+> Self-hosted GitHub Actions runners, at a glance in your macOS menu bar.
 
 ![RunnerBar screenshot](https://raw.githubusercontent.com/eonist/runner-bar/main/runner-bar.gif)
 
@@ -8,23 +8,22 @@ A macOS menu bar app that shows the status of your GitHub self-hosted runners at
 
 ## The problem
 
-You have self-hosted runners installed on your Mac. You have no idea if they're online, offline, or busy without navigating to GitHub.com. RunnerBar fixes that — a colored dot in your menu bar tells you instantly.
-
-- 🟢 All runners online
-- 🟡 Some runners offline  
-- ⚫ All offline or none configured
-
-Click the dot to see a full list of runners with their name, status, and repo/org scope.
-
+1. Status - Knowing if your selfhosted github runner is online, offline, busy.
+2. Mananging - Removing them. Adding them? Pausing them? Which repo or org runners do you have installed.
+3. Activity - Easily look through active or past runs, figure out what worked and what failed
 ---
+
+## The solution:
+
+1. Easily see which runners are offline, online, or buzy
+2. Easily add / remove or pause your runners
+3. Easily look through sessions, individual jobs and action logs. 
 
 ## Install
 
 ```bash
 curl -fsSL https://eonist.github.io/runner-bar/install.sh | bash
 ```
-
-That's it. No Gatekeeper dialog, no System Settings, no Apple ID.
 
 ---
 
@@ -46,20 +45,6 @@ RunnerBar uses your existing `gh` CLI session for auth — no PAT, no OAuth setu
 
 ---
 
-## v0.1 scope
-
-RunnerBar v0.1 is intentionally minimal — read-only visibility only.
-
-Out of scope for v0.1:
-- Registering or adding new runners
-- Starting / stopping runner processes
-- Notifications
-- Multi-account support
-
-See [issue #1](https://github.com/eonist/runner-bar/issues/1) for the full spec.
-
----
-
 ## Docs
 
 - [DEVELOPMENT.md](DEVELOPMENT.md) — how to build and run locally
@@ -68,11 +53,11 @@ See [issue #1](https://github.com/eonist/runner-bar/issues/1) for the full spec.
 
 ---
 
-## Deployment
+## Quick deploy
 
-1. download and build. close current apps
-2. build and deploy
-3. test user-facing download
+1. Download and build. close current apps
+2. Build and deploy
+3. Test user-facing download
 
 ```bash
 git pull && bash build.sh && pkill RunnerBar; sleep 1 && open dist/RunnerBar.app 2>&1
@@ -80,16 +65,16 @@ bash build.sh && bash deploy.sh
 curl -fsSL https://eonist.github.io/runner-bar/install.sh | bash
 ```
 
-To test branches:  
+**To test branches:**    
 `git fetch && git checkout feature/actions-section && git pull`
-and  
+and   
 `bash build.sh && pkill RunnerBar; sleep 1 && open dist/RunnerBar.app`  
 
 ---
 
 ## Contributing
 
-This project is built with SwiftPM and edited with AI assistance — no Xcode required.
+This project is built with SwiftPM and edited with AI assistance — no Xcode required or apple-dev account needed.
 
 ```bash
 git clone https://github.com/eonist/runner-bar
