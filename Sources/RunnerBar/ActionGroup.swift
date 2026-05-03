@@ -193,7 +193,7 @@ func fetchActionGroups(for scope: String) -> [ActionGroup] {
     var runPayloads: [RunPayload] = []
     var seenIDs = Set<Int>()
 
-    // Fetch in_progress and queued runs (same two-phase as Active Jobs).
+    // Phase 1: fetch in_progress and queued runs — these seed the group dict.
     for status in ["in_progress", "queued"] {
         let endpoint = "repos/\(scope)/actions/runs?status=\(status)&per_page=50"
         guard
@@ -206,9 +206,24 @@ func fetchActionGroups(for scope: String) -> [ActionGroup] {
     }
 
     // Group by head_sha — mirrors ci-dash.py's group_runs().
+    // Phase 1 runs seed the dict; only these shas become visible groups.
     var bySha: [String: [RunPayload]] = [:]
     for run in runPayloads {
         bySha[run.headSha, default: []].append(run)
+    }
+
+    // Phase 2: fetch recently completed runs and merge into EXISTING groups only.
+    // As individual sibling workflow files finish, their run_ids vanish from the
+    // in_progress/queued pages — without this merge, jobsTotal shrinks each poll.
+    // Mirrors ci-dash.py's prev_completed merge that keeps groups stable.
+    // ⚠️ We do NOT add new keys to bySha here — only backfill known shas.
+    if let data = ghAPI("repos/\(scope)/actions/runs?status=completed&per_page=100"),
+       let resp = try? JSONDecoder().decode(ActionRunsResponse.self, from: data) {
+        for run in resp.workflowRuns where seenIDs.insert(run.id).inserted {
+            if bySha[run.headSha] != nil {
+                bySha[run.headSha]!.append(run)
+            }
+        }
     }
 
     // Build ActionGroup for each sha bucket.
@@ -277,7 +292,7 @@ func fetchActionGroups(for scope: String) -> [ActionGroup] {
 /// JobsResponse/JobPayload/StepPayload types from ActiveJob.swift.
 private func fetchJobsForRun(_ runID: Int, scope: String, iso: ISO8601DateFormatter) -> [ActiveJob] {
     guard
-        let data = ghAPI("repos/\(scope)/actions/runs/\(runID)/jobs?per_page=100"),
+        let data = ghAPI("repos/\(scope)/actions/runs/\(runID)/jobs?filter=latest&per_page=100"),
         let resp = try? JSONDecoder().decode(JobsResponse.self, from: data)
     else { return [] }
 

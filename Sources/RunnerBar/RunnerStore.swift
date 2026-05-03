@@ -244,8 +244,11 @@ final class RunnerStore {
             var newGroupCache = snapGroupCache
 
             // Vanished groups: were live last poll, absent now — freeze.
+            // ⚠️ Do NOT use `guard == nil` here: always overwrite if the incoming freeze
+            //    has a richer job list (more jobs fetched) than what is already cached.
+            //    The guard would lock in stale mid-run job snapshots forever (issue #91).
             for (sha, group) in snapPrevGroups where !liveGroupIDs.contains(sha) {
-                guard newGroupCache[sha] == nil else { continue }
+                if let existing = newGroupCache[sha], existing.jobs.count >= group.jobs.count { continue }
                 var frozen = group
                 frozen.isDimmed = true
                 // Synthesise a last-updated time if missing.

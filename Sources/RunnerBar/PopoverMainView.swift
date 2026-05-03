@@ -95,7 +95,7 @@ struct PopoverMainView: View {
                             Text(group.currentJobName)
                                 .font(.caption).foregroundColor(.secondary)
                                 .lineLimit(1).truncationMode(.tail)
-                                .frame(width: 64, alignment: .trailing)
+                                .frame(minWidth: 0, maxWidth: 80, alignment: .trailing)
                             Text(group.jobProgress)
                                 .font(.caption.monospacedDigit()).foregroundColor(.secondary)
                                 .frame(width: 30, alignment: .trailing)

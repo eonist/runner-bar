@@ -34,6 +34,9 @@ struct ActionDetailView: View {
 
     /// Drives the live elapsed timer every second.
     @State private var tick = 0
+    /// Held so we can invalidate on disappear and prevent timer accumulation
+    /// when the user navigates away and back (AppDelegate swaps rootView each time).
+    @State private var tickTimer: Timer?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -139,7 +142,14 @@ struct ActionDetailView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear {
-            Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in tick += 1 }
+            // Invalidate any existing timer before creating a new one — prevents
+            // accumulation when the user navigates away and back multiple times.
+            tickTimer?.invalidate()
+            tickTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in tick += 1 }
+        }
+        .onDisappear {
+            tickTimer?.invalidate()
+            tickTimer = nil
         }
     }
 
