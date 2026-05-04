@@ -288,18 +288,26 @@ final class RunnerStore {
 
             var newGroupCache = snapGroupCache
 
+            // Evict any cached entry whose head_sha matches a freshly-fetched group.
+            // Without this sweep, ghost entries from prior runs on the same sha
+            // can survive forever once the cache key changed from sha to max run id.
+            let freshHeadShas = Set(allFetchedGroups.map { $0.headSha })
+            newGroupCache = newGroupCache.filter { _, cached in !freshHeadShas.contains(cached.headSha) }
+
             // Vanished groups: were live last poll, absent now — freeze.
             // ⚠️ Do NOT use `guard == nil` here: always overwrite if the incoming freeze
             //    has a richer job list (more jobs fetched) than what is already cached.
             //    The guard would lock in stale mid-run job snapshots forever (issue #91).
             for (sha, group) in snapPrevGroups where !liveGroupIDs.contains(sha) {
-                if let existing = newGroupCache[sha], existing.jobs.count >= group.jobs.count { continue }
+                if let existing = newGroupCache[sha],
+                   existing.isDimmed,
+                   existing.jobs.count >= group.jobs.count { continue }
                 var frozen = group
                 frozen.isDimmed = true
                 // Synthesise a last-updated time if missing.
                 if frozen.lastJobCompletedAt == nil {
                     frozen = ActionGroup(
-                        id: frozen.id, label: frozen.label, title: frozen.title,
+                        headSha: frozen.headSha, label: frozen.label, title: frozen.title,
                         headBranch: frozen.headBranch, repo: frozen.repo,
                         runs: frozen.runs, jobs: frozen.jobs,
                         firstJobStartedAt: frozen.firstJobStartedAt,
@@ -407,6 +415,26 @@ final class RunnerStore {
                             startedAt:   job.startedAt,
                             createdAt:   job.createdAt,
                             completedAt: job.completedAt,
+                            htmlUrl:     job.htmlUrl,
+                            isDimmed:    false,
+                            steps:       job.steps
+                        )
+                    }
+                    // Quinary: job has been in_progress for >10 min with no conclusion.
+                    // Catches GitHub-hosted jobs that completed between two idle-interval (60s) polls.
+                    // No legitimate CI job runs for >10 min without conclusion/completedAt propagating.
+                    if job.conclusion == nil,
+                       job.status == "in_progress",
+                       let started = job.startedAt,
+                       Date().timeIntervalSince(started) > 600 {
+                        return ActiveJob(
+                            id:          job.id,
+                            name:        job.name,
+                            status:      "completed",
+                            conclusion:  "success",
+                            startedAt:   job.startedAt,
+                            createdAt:   job.createdAt,
+                            completedAt: job.completedAt ?? started.addingTimeInterval(600),
                             htmlUrl:     job.htmlUrl,
                             isDimmed:    false,
                             steps:       job.steps

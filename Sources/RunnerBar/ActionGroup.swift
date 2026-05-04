@@ -36,7 +36,7 @@ struct WorkflowRunRef: Identifiable {
 /// `ActionDetailView` drills into the flat job list; `JobDetailView`/`StepLogView`
 /// are reused unchanged below that.
 struct ActionGroup: Identifiable {
-    let id: String              // head_sha — stable, unique group key
+    let headSha: String         // head_sha — kept as the underlying group identity
     let label: String           // "#1270" if PR, else "d6281b" (sha[:7])
     let title: String           // commit/PR message first line (≤40 chars)
     let headBranch: String?
@@ -44,6 +44,11 @@ struct ActionGroup: Identifiable {
 
     /// All sibling workflow runs sharing this `head_sha`.
     var runs: [WorkflowRunRef]
+
+    /// Stable unique key: highest run ID in this group.
+    /// Run IDs are unique and monotonically increasing — immune to head_sha collisions
+    /// caused by scheduled workflows firing on the same commit.
+    var id: String { String(runs.map { $0.id }.max() ?? 0) }
 
     /// All jobs across every run in this group, fetched and flattened.
     /// This is what `ActionDetailView` renders.
@@ -65,7 +70,7 @@ struct ActionGroup: Identifiable {
     /// full struct at every call site.
     func withJobs(_ newJobs: [ActiveJob]) -> ActionGroup {
         ActionGroup(
-            id: id, label: label, title: title, headBranch: headBranch,
+            headSha: headSha, label: label, title: title, headBranch: headBranch,
             repo: repo, runs: runs, jobs: newJobs,
             firstJobStartedAt: firstJobStartedAt,
             lastJobCompletedAt: lastJobCompletedAt,
@@ -81,7 +86,10 @@ struct ActionGroup: Identifiable {
     /// run-level API status lags behind (mirrors ci-dash.py override).
     var groupStatus: GroupStatus {
         // Override: all jobs done → completed, regardless of run API lag.
-        if jobsTotal > 0 && jobsDone == jobsTotal { return .completed }
+        // Use any-conclusion count (not jobsDone, which is success+skipped only) so
+        // a single failed job still triggers the all-done path.
+        if jobsTotal > 0,
+           jobs.filter({ $0.conclusion != nil }).count == jobsTotal { return .completed }
         if runs.contains(where: { $0.status == "in_progress" }) { return .inProgress }
         if runs.contains(where: { $0.status == "queued" }) { return .queued }
         return .completed
@@ -289,7 +297,7 @@ func fetchActionGroups(for scope: String, cache: [String: ActionGroup] = [:]) ->
         let ends   = allJobs.compactMap { $0.completedAt }
 
         return ActionGroup(
-            id:                  sha,
+            headSha:             sha,
             label:               label,
             title:               title,
             headBranch:          rep.headBranch,
