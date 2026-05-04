@@ -275,9 +275,15 @@ final class RunnerStore {
                 "cache: \(newCache.count) | display: \(display.count)")
 
             // ── Action groups
+            // fetchActionGroups looks up cache entries by headSha, but actionGroupCache is now
+            // keyed by max run ID (Fix A). Rebuild a sha-keyed view so cache hits still work.
+            let shaKeyedGroupCache: [String: ActionGroup] = Dictionary(
+                snapGroupCache.values.map { ($0.headSha, $0) },
+                uniquingKeysWith: { a, b in a.id > b.id ? a : b }
+            )
             var allFetchedGroups: [ActionGroup] = []
             for scope in ScopeStore.shared.scopes {
-                allFetchedGroups.append(contentsOf: fetchActionGroups(for: scope, cache: snapGroupCache))
+                allFetchedGroups.append(contentsOf: fetchActionGroups(for: scope, cache: shaKeyedGroupCache))
             }
 
             // Live groups = those that have at least one in_progress or queued run.
