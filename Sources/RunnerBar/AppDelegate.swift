@@ -323,6 +323,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     // Returns a refreshed view for the saved nav state using live RunnerStore data,
     // or nil if the entity is gone (or state is .main — caller stays on mainView).
     private func validatedView(for state: NavState) -> AnyView? {
+        savedNavState = nil  // prevent factory side-effects from seeding next cycle
         let store = RunnerStore.shared
         switch state {
         case .main:
