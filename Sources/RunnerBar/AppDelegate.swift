@@ -103,12 +103,22 @@ import SwiftUI
 //
 // ═══════════════════════════════════════════════════════════════════════════════
 
+private enum NavState {
+    case main
+    case jobDetail(ActiveJob)
+    case stepLog(ActiveJob, JobStep)
+    case actionDetail(ActionGroup)
+    case actionJobDetail(ActiveJob, ActionGroup)
+    case actionStepLog(ActiveJob, JobStep, ActionGroup)
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private var hc: NSHostingController<AnyView>?
     private let observable = RunnerStoreObservable()
+    private var savedNavState: NavState?
 
     // ⚠️ CAUSE 2+4 guard. MUST be set to true BEFORE reload() on open.
     // Without this guard, onChange fires reload() while popover is visible
@@ -197,7 +207,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     // mainView() — navigation level 1.
     // onSelectJob → level 2 (detailView); onSelectAction → level 2a (actionDetailView).
     private func mainView() -> AnyView {
-        AnyView(PopoverMainView(
+        savedNavState = nil
+        return AnyView(PopoverMainView(
             store: observable,
             onSelectJob: { [weak self] job in
                 guard let self else { return }
@@ -221,7 +232,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     // Shows the flat job list for a commit/PR group.
     // onBack → level 1; onSelectJob → level 3a.
     private func actionDetailView(group: ActionGroup) -> AnyView {
-        AnyView(ActionDetailView(
+        savedNavState = .actionDetail(group)
+        return AnyView(ActionDetailView(
             group: group,
             onBack: { [weak self] in
                 guard let self else { return }
@@ -243,7 +255,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     // detailViewFromAction(job:group:) — navigation level 3a.
     // Reuses JobDetailView; onBack returns to actionDetailView, not mainView.
     private func detailViewFromAction(job: ActiveJob, group: ActionGroup) -> AnyView {
-        AnyView(JobDetailView(
+        savedNavState = .actionJobDetail(job, group)
+        return AnyView(JobDetailView(
             job: job,
             onBack: { [weak self] in
                 guard let self else { return }
@@ -258,7 +271,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     // logViewFromAction — navigation level 4a. onBack → level 3a.
     private func logViewFromAction(job: ActiveJob, step: JobStep, group: ActionGroup) -> AnyView {
-        AnyView(StepLogView(
+        savedNavState = .actionStepLog(job, step, group)
+        return AnyView(StepLogView(
             job: job,
             step: step,
             onBack: { [weak self] in
@@ -276,7 +290,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     // popover and hc; if AppDelegate were deallocated, the closure guard would
     // prevent a crash. In practice AppDelegate lives for the app’s lifetime.
     private func detailView(job: ActiveJob) -> AnyView {
-        AnyView(JobDetailView(
+        savedNavState = .jobDetail(job)
+        return AnyView(JobDetailView(
             job: job,
             onBack: { [weak self] in
                 guard let self else { return }
@@ -294,7 +309,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     // job is captured by value in the closure — ActiveJob is a struct, so this
     // is a safe copy; no reference cycle or stale-pointer risk.
     private func logView(job: ActiveJob, step: JobStep) -> AnyView {
-        AnyView(StepLogView(
+        savedNavState = .stepLog(job, step)
+        return AnyView(StepLogView(
             job: job,
             step: step,
             onBack: { [weak self] in
@@ -302,6 +318,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 self.navigate(to: self.detailView(job: job))
             }
         ))
+    }
+
+    // Returns a refreshed view for the saved nav state using live RunnerStore data,
+    // or nil if the entity is gone (or state is .main — caller stays on mainView).
+    private func validatedView(for state: NavState) -> AnyView? {
+        let store = RunnerStore.shared
+        switch state {
+        case .main:
+            return nil
+
+        case .jobDetail(let job):
+            let live = store.jobs.first(where: { $0.id == job.id }) ?? job
+            return detailView(job: live)
+
+        case .stepLog(let job, let step):
+            let live = store.jobs.first(where: { $0.id == job.id }) ?? job
+            return logView(job: live, step: step)
+
+        case .actionDetail(let group):
+            guard let live = store.actions.first(where: { $0.id == group.id }) else { return nil }
+            return actionDetailView(group: live)
+
+        case .actionJobDetail(let job, let group):
+            guard let liveGroup = store.actions.first(where: { $0.id == group.id }) else { return nil }
+            let liveJob = liveGroup.jobs.first(where: { $0.id == job.id }) ?? job
+            return detailViewFromAction(job: liveJob, group: liveGroup)
+
+        case .actionStepLog(let job, let step, let group):
+            guard let liveGroup = store.actions.first(where: { $0.id == group.id }) else { return nil }
+            let liveJob = liveGroup.jobs.first(where: { $0.id == job.id }) ?? job
+            return logViewFromAction(job: liveJob, step: step, group: liveGroup)
+        }
     }
 
     // MARK: — Navigation
@@ -386,6 +434,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)  // Step 5
         popover.contentViewController?.view.window?.makeKey()
-        // ⚠️ NOTHING after show(). isShown==true from here. Any size change = left-jump.
+        // ⚠️ NOTHING that touches size after show(). isShown==true from here.
+        // Restoring saved nav state is a rootView swap only (navigate()) — safe.
+        if let saved = savedNavState, let restored = validatedView(for: saved) {
+            navigate(to: restored)
+        }
     }
 }
