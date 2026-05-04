@@ -79,7 +79,7 @@ struct ActionDetailView: View {
                         .truncationMode(.middle)
                 }
                 // Job progress summary
-                Text("\(group.jobsDone)/\(group.jobsTotal) jobs done")
+                Text("\(group.jobsDone)/\(group.jobsTotal) jobs concluded")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }

@@ -40,7 +40,7 @@ struct PopoverMainView: View {
 
             // ── Header
             HStack {
-                Text("RunnerBar v0.31")  // ⚠️ bump on every commit
+                Text("RunnerBar v0.33")  // ⚠️ bump on every commit
                     .font(.headline).foregroundColor(.secondary)
                 Spacer()
                 if isAuthenticated {
@@ -105,10 +105,12 @@ struct PopoverMainView: View {
                                 .foregroundColor(group.isDimmed ? .secondary : .primary)
                                 .lineLimit(1).truncationMode(.tail)
                             Spacer()  // ⚠️ RULE 3: load-bearing — do NOT remove
-                            Text(group.currentJobName)
-                                .font(.caption).foregroundColor(.secondary)
-                                .lineLimit(1).truncationMode(.tail)
-                                .frame(minWidth: 0, maxWidth: 80, alignment: .trailing)
+                            if group.groupStatus == .inProgress || group.groupStatus == .queued {
+                                Text(group.currentJobName)
+                                    .font(.caption).foregroundColor(.secondary)
+                                    .lineLimit(1).truncationMode(.tail)
+                                    .frame(minWidth: 0, maxWidth: 80, alignment: .trailing)
+                            }
                             Text(group.jobProgress)
                                 .font(.caption.monospacedDigit()).foregroundColor(.secondary)
                                 .frame(width: 30, alignment: .trailing)

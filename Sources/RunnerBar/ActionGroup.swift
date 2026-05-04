@@ -99,7 +99,9 @@ struct ActionGroup: Identifiable {
     }
 
     /// Number of jobs with a concluded result across all sibling runs.
-    var jobsDone: Int { jobs.filter { $0.conclusion != nil }.count }
+    var jobsDone: Int {
+        jobs.filter { $0.conclusion == "success" || $0.conclusion == "skipped" }.count
+    }
 
     /// Total job count across all sibling runs.
     var jobsTotal: Int { jobs.count }
