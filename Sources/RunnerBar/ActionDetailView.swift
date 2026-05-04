@@ -52,6 +52,15 @@ struct ActionDetailView: View {
                 }
                 .buttonStyle(.plain)
                 Spacer()  // ⚠️ load-bearing — pushes elapsed to right edge
+                LogCopyButton(
+                    fetch: { completion in
+                        let g = group
+                        DispatchQueue.global(qos: .userInitiated).async {
+                            completion(fetchActionLogs(group: g))
+                        }
+                    },
+                    isDisabled: group.groupStatus == .inProgress
+                )
                 Text(elapsedLive(tick: tick))
                     .font(.caption.monospacedDigit())
                     .foregroundColor(.secondary)
