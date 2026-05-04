@@ -191,3 +191,36 @@ private func stripAnsi(_ input: String) -> String {
         withTemplate: ""  // replace each match with empty string (delete)
     )
 }
+
+// MARK: - POST helper
+
+/// Fires a POST to the GitHub API via `gh api --method POST`.
+/// Returns true if gh exits 0 (HTTP 2xx), false otherwise.
+/// Must be called from a background thread.
+@discardableResult
+func ghPost(_ endpoint: String) -> Bool {
+    let candidates = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"]
+    guard let gh = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
+        log("ghPost › gh not found")
+        return false
+    }
+    let task = Process()
+    task.executableURL  = URL(fileURLWithPath: gh)
+    task.arguments      = ["api", "--method", "POST",
+                           "-H", "Accept: application/vnd.github+json",
+                           endpoint]
+    task.standardOutput = Pipe()
+    task.standardError  = Pipe()
+    do { try task.run() } catch {
+        log("ghPost › launch error: \(error)")
+        return false
+    }
+
+    let timeout = DispatchWorkItem { task.terminate() }
+    DispatchQueue.global().asyncAfter(deadline: .now() + 30, execute: timeout)
+    task.waitUntilExit()
+    timeout.cancel()
+
+    log("ghPost › \(endpoint) exit \(task.terminationStatus)")
+    return task.terminationStatus == 0
+}
