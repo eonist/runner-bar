@@ -65,7 +65,7 @@ struct StepLogView: View {
                         let text = logText
                         DispatchQueue.global(qos: .userInitiated).async { completion(text) }
                     },
-                    isDisabled: logText == nil
+                    isDisabled: logText == nil || logText?.isEmpty == true
                 )
                 Text(step.elapsed)
                     .font(.caption.monospacedDigit())

@@ -43,9 +43,11 @@ struct LogCopyButton: View {
                 if let text = text, !text.isEmpty {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(text, forType: .string)
-                }
-                phase = .done
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    phase = .done
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        phase = .idle
+                    }
+                } else {
                     phase = .idle
                 }
             }

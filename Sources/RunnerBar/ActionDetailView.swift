@@ -59,7 +59,7 @@ struct ActionDetailView: View {
                             completion(fetchActionLogs(group: g))
                         }
                     },
-                    isDisabled: group.groupStatus == .inProgress
+                    isDisabled: false
                 )
                 Text(elapsedLive(tick: tick))
                     .font(.caption.monospacedDigit())

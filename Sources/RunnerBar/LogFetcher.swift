@@ -7,9 +7,9 @@ import Foundation
 /// instead of the default JSON wrapper. Mirrors the pattern used by
 /// `fetchStepLog` in GitHub.swift but returns raw `Data` for binary support.
 private func ghRaw(_ endpoint: String, timeout: TimeInterval = 60) -> Data? {
-    let gh = "/opt/homebrew/bin/gh"
-    guard FileManager.default.isExecutableFile(atPath: gh) else {
-        log("ghRaw › gh not found at \(gh)")
+    let candidates = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"]
+    guard let gh = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
+        log("ghRaw › gh not found in \(candidates)")
         return nil
     }
     let task = Process()
@@ -30,11 +30,10 @@ private func ghRaw(_ endpoint: String, timeout: TimeInterval = 60) -> Data? {
         pipe.fileHandleForReading.readabilityHandler = nil
         return nil
     }
-    let deadline = Date().addingTimeInterval(timeout)
-    while task.isRunning {
-        if Date() > deadline { task.terminate(); break }
-        Thread.sleep(forTimeInterval: 0.05)
-    }
+    let timeoutItem = DispatchWorkItem { if task.isRunning { task.terminate() } }
+    DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutItem)
+    task.waitUntilExit()
+    timeoutItem.cancel()
     pipe.fileHandleForReading.readabilityHandler = nil
     let tail = pipe.fileHandleForReading.readDataToEndOfFile()
     if !tail.isEmpty { lock.lock(); outputData.append(tail); lock.unlock() }
@@ -110,11 +109,15 @@ func unzipLogs(_ zipData: Data) -> [(name: String, text: String)] {
     proc.standardError  = FileHandle.nullDevice
     try? proc.run()
     proc.waitUntilExit()
+    guard proc.terminationStatus == 0 else {
+        return []
+    }
 
     guard let enumerator = fm.enumerator(at: tmp, includingPropertiesForKeys: nil) else { return [] }
     var results: [(name: String, text: String)] = []
     for case let url as URL in enumerator where url.pathExtension == "txt" {
-        let name = url.deletingPathExtension().lastPathComponent
+        let relative = url.path.replacingOccurrences(of: tmp.path + "/", with: "")
+        let name = URL(fileURLWithPath: relative).deletingPathExtension().path
         if let text = try? String(contentsOf: url, encoding: .utf8) {
             results.append((name: name, text: text))
         }

@@ -93,7 +93,7 @@ struct JobDetailView: View {
                             completion(fetchJobLog(jobID: jobID, scope: scope))
                         }
                     },
-                    isDisabled: job.status == "in_progress"
+                    isDisabled: false
                 )
                 Text(job.isDimmed ? job.elapsed : elapsedLive(tick: tick))
                     .font(.caption.monospacedDigit())
